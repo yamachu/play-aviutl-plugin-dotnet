@@ -13,6 +13,14 @@ partial class MyPlugin : IInputVideoPluginWithoutConfig<PluginImageHandle>
     public static string fileFilter => "All Files (*.*)\0*.*\0";
     public static string information => ".NET NativeAOT AviUtl Input Plugin Example";
 
+    // パラメータなしコンストラクタ - 初期化処理をここに書ける
+    public MyPlugin()
+    {
+        // ここに初期化処理を追加できます
+        // 例：ログの初期化、設定の読み込み、etc.
+        Console.WriteLine("MyPlugin initialized!");
+    }
+
     public bool FuncClose(PluginImageHandle ih)
     {
         ih.Dispose();

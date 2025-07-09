@@ -96,7 +96,7 @@ namespace {pluginClass.Namespace}
             delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
             delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
             delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-        )
+        ) : this()
         {{
             {pluginClass.InterfaceName}<{pluginClass.HandleTypeName}>.InitPluginTable<{pluginClass.ClassName}>(
                 funcOpen,
