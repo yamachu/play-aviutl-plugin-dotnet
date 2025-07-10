@@ -154,7 +154,7 @@ public interface IInputAudioPluginWithoutConfig<T> : IInputPlugin<IInputHandle, 
     #region Public Type-Safe API
     bool FuncClose(T ih);
     bool FuncInfoGet(T ih, out INPUT_INFO? info);
-    Span<byte> FuncReadAudio(T ih, int n);
+    Span<byte> FuncReadAudio(T ih, int start, int length);
     #endregion
 
     bool IInputPluginAPI.FuncClose(IInputHandle ih)
