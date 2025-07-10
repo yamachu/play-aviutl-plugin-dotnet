@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net9.0": {
+      "aviutlpluginnet.core": {
+        "type": "Project",
+        "dependencies": {
+          "AviUtlPluginNet.Win32": "[1.0.0, )"
+        }
+      },
+      "aviutlpluginnet.win32": {
+        "type": "Project"
+      }
+    }
+  }
+}
