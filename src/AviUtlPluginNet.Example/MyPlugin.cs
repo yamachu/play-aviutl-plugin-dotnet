@@ -77,29 +77,6 @@ partial class MyPlugin : IInputVideoPluginWithoutConfig<PluginImageHandle>
 
     public bool FuncInfoGet(PluginImageHandle ih, out INPUT_INFO? info)
     {
-        // 画像サイズ
-        int w = ih.Width;
-        int h = ih.Height;
-
-        // BITMAPINFOHEADERを作成
-        var bih = new Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
-            biWidth = w,
-            biHeight = h,
-            biPlanes = 1,
-            biBitCount = 24,
-            biCompression = 0, // BI_RGB
-            biSizeImage = (uint)(w * h * 3),
-            biXPelsPerMeter = 0,
-            biYPelsPerMeter = 0,
-            biClrUsed = 0,
-            biClrImportant = 0
-        };
-        // アンマネージド領域に確保
-        IntPtr bihPtr = Marshal.AllocHGlobal(Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>());
-        Marshal.StructureToPtr(bih, bihPtr, false);
-
         // 1秒=30フレーム固定、rate=30, scale=1
         info = new INPUT_INFO()
         {
@@ -107,7 +84,7 @@ partial class MyPlugin : IInputVideoPluginWithoutConfig<PluginImageHandle>
             rate = 30,
             scale = 1,
             n = 30,
-            format = bihPtr,
+            format = ih.BitmapInfoPtr, // PluginImageHandleが管理するポインタを使用
             format_size = Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
             audio_n = 0,
             audio_format = IntPtr.Zero,
