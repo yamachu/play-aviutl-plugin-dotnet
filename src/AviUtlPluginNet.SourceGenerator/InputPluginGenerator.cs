@@ -124,6 +124,7 @@ namespace {pluginClass.Namespace}
 #nullable enable
 using System;
 using System.Runtime.InteropServices;
+using System.Buffers;
 using AviUtlPluginNet.Abstractions;
 using AviUtlPluginNet.Core.Interop.AUI2;
 
@@ -226,7 +227,18 @@ namespace {pluginClass.Namespace}
 
             var pixels = (plugin as {pluginClass.InterfaceName}<{pluginClass.HandleTypeName}>).FuncReadVideo(handle, frame);
 
-            Marshal.Copy(pixels.ToArray(), 0, buf, pixels.Length);
+            // Copy directly from the span to the unmanaged buffer
+            if (!pixels.IsEmpty)
+            {{
+                unsafe
+                {{
+                    var dst = (byte*)buf;
+                    fixed (byte* src = pixels)
+                    {{
+                        Buffer.MemoryCopy(src, dst, pixels.Length, pixels.Length);
+                    }}
+                }}
+            }}
             return pixels.Length;
         }}
 
@@ -240,7 +252,15 @@ namespace {pluginClass.Namespace}
             var audio = (plugin as {pluginClass.InterfaceName}<{pluginClass.HandleTypeName}>).FuncReadAudio(handle, start, length);
             if (audio.IsEmpty) return 0;
 
-            Marshal.Copy(audio.ToArray(), 0, buf, audio.Length);
+            // Copy directly from the span to the unmanaged buffer
+            unsafe
+            {{
+                var dst = (byte*)buf;
+                fixed (byte* src = audio)
+                {{
+                    Buffer.MemoryCopy(src, dst, audio.Length, audio.Length);
+                }}
+            }}
             return audio.Length;
         }}
     }}
