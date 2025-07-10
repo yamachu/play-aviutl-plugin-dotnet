@@ -3,6 +3,7 @@
     <Project Path="src/AviUtlPluginNet.Abstractions/AviUtlPluginNet.Abstractions.csproj" />
     <Project Path="src/AviUtlPluginNet.Core/AviUtlPluginNet.Core.csproj" />
     <Project Path="src/AviUtlPluginNet.Example/AviUtlPluginNet.Example.csproj" />
+    <Project Path="src/AviUtlPluginNet.SourceGenerator/AviUtlPluginNet.SourceGenerator.csproj" />
     <Project Path="src/AviUtlPluginNet.Win32/AviUtlPluginNet.Win32.csproj" />
   </Folder>
 </Solution>

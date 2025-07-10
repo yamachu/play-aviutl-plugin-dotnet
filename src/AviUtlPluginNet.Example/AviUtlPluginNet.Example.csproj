@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- For debugging source generators -->
+    <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +16,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AviUtlPluginNet.Abstractions\AviUtlPluginNet.Abstractions.csproj" />
+    <ProjectReference Include="..\AviUtlPluginNet.Core\AviUtlPluginNet.Core.csproj" />
+    <ProjectReference Include="..\AviUtlPluginNet.SourceGenerator\AviUtlPluginNet.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

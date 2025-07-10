@@ -35,11 +35,26 @@ dotnet publish /p:NativeLib=Shared --use-current-runtime
 4. コピーしたDLLの拡張子を `.dll` から `.aui2` に変更します。
 5. `./src/AviUtlPluginNet.Example/bin/Release/net9.0/win-x64/publish/` ディレクトリに存在する `libSkiaSharp.dll` を aviutl2.exe と同じディレクトリにコピーします。
 
+## Pluginの実装方法
+
+1. Plugin実装に必要なパッケージを参照します。
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\AviUtlPluginNet.Abstractions\AviUtlPluginNet.Abstractions.csproj" />
+    <ProjectReference Include="..\AviUtlPluginNet.Core\AviUtlPluginNet.Core.csproj" />
+    <ProjectReference Include="..\AviUtlPluginNet.SourceGenerator\AviUtlPluginNet.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+</ItemGroup>
+```
+
+2. Pluginで読み込むリソースを管理するクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputHandle` を実装している必要があります。
+3. Pluginのメインクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputPluginAPI` を実装している必要があります。
+4. Pluginのクラスに `AviUtlPluginNet.Abstractions.Attribute.AviUtl2InputPluginAttribute` 属性を付与します。
+
 ## NOTE
 
 - 映像と音声が両方あるリソースの対応は現在行なっていません。
 - AUO2形式プラグインの対応は現在行なっていません。
-- SourceGeneratorを使用したプラグインの実装に書き換えています。
 
 ## ライセンス
 
