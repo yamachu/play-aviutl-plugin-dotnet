@@ -17,6 +17,32 @@ public enum OutputFlag : int
     Audio = 2,
 }
 
+[Flags]
+public enum OutputImageFormat : uint
+{
+    /// <summary>
+    /// RGB24bit
+    /// </summary>
+    RGB = 0,
+    /// <summary>
+    /// YUY2
+    /// </summary>
+    YUY2 = 0x32595559, // 'Y''U''Y''2'
+}
+
+[Flags]
+public enum OutputAudioFormat : uint
+{
+    /// <summary>
+    /// PCM16bit
+    /// </summary>
+    PCM16 = 1,
+    /// <summary>
+    /// PCM32bit
+    /// </summary>
+    PCM32 = 3,
+}
+
 /// <summary>
 /// 出力情報構造体
 /// </summary>
