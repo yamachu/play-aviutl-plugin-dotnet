@@ -20,6 +20,7 @@ src/
   AviUtlPluginNet.Core/           # コア機能
   AviUtlPluginNet.Win32/          # Win32 APIラッパー
   AviUtlPluginNet.Example/        # サンプルプラグイン
+  AviUtlPluginNet.SourceGenerator/ # Source Generator
 ```
 
 ## Exampleのビルドおよび実行方法
