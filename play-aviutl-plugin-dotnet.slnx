@@ -6,4 +6,7 @@
     <Project Path="src/AviUtlPluginNet.SourceGenerator/AviUtlPluginNet.SourceGenerator.csproj" />
     <Project Path="src/AviUtlPluginNet.Win32/AviUtlPluginNet.Win32.csproj" />
   </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/AviUtlPluginNet.AbstractionsTests/AviUtlPluginNet.AbstractionsTests.csproj" />
+  </Folder>
 </Solution>
