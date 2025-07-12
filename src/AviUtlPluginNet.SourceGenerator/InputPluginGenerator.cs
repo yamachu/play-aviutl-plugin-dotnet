@@ -287,3 +287,5 @@ namespace {pluginClass.Namespace}
         }
     }
 }
+
+// TODO: Rename and impl output plugin generator

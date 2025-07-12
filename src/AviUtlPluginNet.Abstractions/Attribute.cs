@@ -6,3 +6,8 @@ using System;
 public class AviUtl2InputPluginAttribute : Attribute
 {
 }
+
+[AttributeUsage(AttributeTargets.Class)]
+public class AviUtl2OutputPluginAttribute : Attribute
+{
+}
