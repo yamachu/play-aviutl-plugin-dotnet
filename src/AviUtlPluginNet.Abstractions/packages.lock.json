@@ -11,6 +11,7 @@
       "aviutlpluginnet.win32": {
         "type": "Project"
       }
-    }
+    },
+    "net9.0/osx-arm64": {}
   }
 }
