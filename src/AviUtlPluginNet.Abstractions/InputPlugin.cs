@@ -9,6 +9,21 @@ using AviUtlPluginNet.Core.Interop.AUI2;
 public interface IInputHandle : IDisposable;
 
 /// <summary>
+/// 設定ダイアログなしプラグインのマーカーインターフェース
+/// このインターフェースを実装したプラグインは、自動的にfunc_configがnullに設定される
+/// </summary>
+public interface IWithoutConfig : IInputPluginAPI
+{
+    /// <summary>
+    /// 設定ダイアログが利用可能かどうかを示します
+    /// </summary>
+    static virtual bool HasConfig => false;
+
+    bool IInputPluginAPI.FuncConfig(IntPtr hwnd, IntPtr hInstance)
+        => false; // 設定ダイアログなし
+}
+
+/// <summary>
 /// 入力プラグインAPIの共通インターフェース
 /// </summary>
 public interface IInputPluginAPI
@@ -40,6 +55,13 @@ public interface IInputPlugin<TVideo, TAudio> : IInputPluginAPI
     static abstract string name { get; }
     static abstract string fileFilter { get; }
     static abstract string information { get; }
+    #endregion
+
+    #region Plugin Configuration
+    /// <summary>
+    /// 設定ダイアログが利用可能かどうかを示します
+    /// </summary>
+    static virtual bool HasConfig => true;
     #endregion
 
     #region Internal
@@ -76,7 +98,16 @@ public interface IInputPlugin<TVideo, TAudio> : IInputPluginAPI
         table->func_info_get = funcInfoGet;
         table->func_read_video = funcReadVideo;
         table->func_read_audio = funcReadAudio;
-        table->func_config = funcConfig;
+
+        // HasConfigプロパティを使用して設定ダイアログの有無を判定
+        if (TPlugin.HasConfig)
+        {
+            table->func_config = funcConfig;
+        }
+        else
+        {
+            table->func_config = null;
+        }
     }
 
     unsafe static ref INPUT_PLUGIN_TABLE IInputPluginAPI.pluginTable
@@ -87,7 +118,7 @@ public interface IInputPlugin<TVideo, TAudio> : IInputPluginAPI
 /// <summary>
 /// 映像入力プラグイン（設定ダイアログなし）用インターフェース
 /// </summary>
-public interface IInputVideoPluginWithoutConfig<T> : IInputPlugin<T, IInputHandle> where T : IInputHandle
+public interface IInputVideoPlugin<T> : IInputPlugin<T, IInputHandle> where T : IInputHandle
 {
     unsafe static new void InitPluginTable<TPlugin>(
         delegate* unmanaged[Stdcall]<IntPtr, IntPtr> funcOpen,
@@ -96,12 +127,11 @@ public interface IInputVideoPluginWithoutConfig<T> : IInputPlugin<T, IInputHandl
         delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
         delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
         delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-    ) where TPlugin : IInputVideoPluginWithoutConfig<T>
+    ) where TPlugin : IInputVideoPlugin<T>
     {
         IInputPlugin<T, IInputHandle>.InitPluginTable<TPlugin>(funcOpen, funcClose, funcInfoGet, funcReadVideo, funcReadAudio, funcConfig);
         ref var table = ref TPlugin.pluginTable;
         table.flag = InputPluginTableFlag.Video;
-        table.func_config = null; // 設定ダイアログなし
     }
 
     #region Public Type-Safe API
@@ -126,15 +156,12 @@ public interface IInputVideoPluginWithoutConfig<T> : IInputPlugin<T, IInputHandl
 
     Span<byte> IInputPluginAPI.FuncReadAudio(IInputHandle ih, int start, int length)
         => Span<byte>.Empty; // 映像プラグインは音声未対応
-
-    bool IInputPluginAPI.FuncConfig(IntPtr hwnd, IntPtr hInstance)
-        => false; // 設定ダイアログなし
 }
 
 /// <summary>
 /// 音声入力プラグイン（設定ダイアログなし）用インターフェース
 /// </summary>
-public interface IInputAudioPluginWithoutConfig<T> : IInputPlugin<IInputHandle, T> where T : IInputHandle
+public interface IInputAudioPlugin<T> : IInputPlugin<IInputHandle, T> where T : IInputHandle
 {
     unsafe static new void InitPluginTable<TPlugin>(
         delegate* unmanaged[Stdcall]<IntPtr, IntPtr> funcOpen,
@@ -143,12 +170,11 @@ public interface IInputAudioPluginWithoutConfig<T> : IInputPlugin<IInputHandle, 
         delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
         delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
         delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-    ) where TPlugin : IInputAudioPluginWithoutConfig<T>
+    ) where TPlugin : IInputAudioPlugin<T>
     {
         IInputPlugin<IInputHandle, T>.InitPluginTable<TPlugin>(funcOpen, funcClose, funcInfoGet, funcReadVideo, funcReadAudio, funcConfig);
         ref var table = ref TPlugin.pluginTable;
         table.flag = InputPluginTableFlag.Audio;
-        table.func_config = null; // 設定ダイアログなし
     }
 
     #region Public Type-Safe API
@@ -173,7 +199,4 @@ public interface IInputAudioPluginWithoutConfig<T> : IInputPlugin<IInputHandle, 
 
     Span<byte> IInputPluginAPI.FuncReadAudio(IInputHandle ih, int start, int length)
         => ih is T t ? FuncReadAudio(t, start, length) : Span<byte>.Empty;
-
-    bool IInputPluginAPI.FuncConfig(IntPtr hwnd, IntPtr hInstance)
-        => false; // 設定ダイアログなし
 }
