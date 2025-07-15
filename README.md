@@ -30,6 +30,10 @@ test/
     templates/                      # テスト用プラグインテンプレート
       TestPlugin.csproj.template    # テストプラグイン用プロジェクトファイル
     SimpleNativeLibraryE2ETests.cs  # メインのE2Eテスト
+  AviUtlPluginNet.PreBuiltTests/    # 既存ライブラリのインターフェース検証テスト
+    Utils/                          # テストユーティリティ
+    vendor/                         # テスト対象ライブラリ配置ディレクトリ
+    PreBuiltE2ETests.cs             # 既存ライブラリのE2Eテスト
 ```
 
 ## Exampleのビルドおよび実行方法
@@ -66,6 +70,30 @@ dotnet publish /p:NativeLib=Shared --use-current-runtime
 - 映像と音声が両方あるリソースの対応は現在行なっていません。
 - AUO2形式プラグインの対応は現在行なっていません。
 - E2EテストはSource Generatorが生成したアダプター層の動作を検証します。
+
+## テストの実行方法
+
+### 1. 開発用E2Eテスト (AviUtlPluginNet.AbstractionsTests)
+
+.NETで実装したプラグインのSource Generatorとアダプター層をテストします：
+
+```sh
+dotnet test test/AviUtlPluginNet.AbstractionsTests/
+```
+
+### 2. 既存ライブラリのインターフェース検証テスト (AviUtlPluginNet.PreBuiltTests)
+
+既にビルドされたライブラリ（.NET以外の言語で作成されたものも含む）のインターフェースを検証します：
+
+```sh
+# 事前にビルドされたライブラリのテスト
+RUN_E2E_TARGET=AviUtlPluginNet.Example.dylib dotnet test test/AviUtlPluginNet.PreBuiltTests/
+
+# 他の言語で作成されたプラグインのテスト
+RUN_E2E_TARGET=MyNativePlugin.dll dotnet test test/AviUtlPluginNet.PreBuiltTests/
+```
+
+詳細なテスト実行方法は各テストプロジェクトのREADMEを参照してください。
 
 ## ライセンス
 
