@@ -31,7 +31,6 @@
           "Microsoft.Windows.SDK.Win32Metadata": "61.0.15-preview"
         }
       }
-    },
-    "net9.0/osx-arm64": {}
+    }
   }
 }
