@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- For debugging source generators -->
+    <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(ProjectSolutionDir)\AviUtlPluginNet.Abstractions\AviUtlPluginNet.Abstractions.csproj" />
+    <ProjectReference Include="$(ProjectSolutionDir)\AviUtlPluginNet.Core\AviUtlPluginNet.Core.csproj" />
+    <ProjectReference Include="$(ProjectSolutionDir)\AviUtlPluginNet.SourceGenerator\AviUtlPluginNet.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
