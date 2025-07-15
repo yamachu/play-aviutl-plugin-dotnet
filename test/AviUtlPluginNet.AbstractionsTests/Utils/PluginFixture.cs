@@ -76,7 +76,7 @@ public class PluginFixture : IDisposable
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"publish -c Debug -o \"{_PublishDirPath}\" --use-current-runtime --self-contained -p:NativeLib=Shared -p:ProjectSolutionDir={Path.GetFullPath("../../../../../src")}",
+                Arguments = $"publish -c Debug -o \"{_PublishDirPath}\" --use-current-runtime --self-contained -p:NativeLib=Shared -p:ProjectSolutionDir={Path.GetFullPath("../../../../../src")} -p:RestoreLockedMode=false",
                 WorkingDirectory = TmpDirPath,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
