@@ -7,7 +7,7 @@ using SkiaSharp;
 namespace AviUtlPluginNet.Example;
 
 [Abstractions.Attribute.AviUtl2InputPlugin]
-partial class MyPlugin : IInputVideoPluginWithoutConfig<PluginImageHandle>
+partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
 {
     public static string name => ".NET Example Input Plugin";
     public static string fileFilter => "All Files (*.*)\0*.*\0";
