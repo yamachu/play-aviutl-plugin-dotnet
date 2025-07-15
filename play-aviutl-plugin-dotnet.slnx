@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/AviUtlPluginNet.AbstractionsTests/AviUtlPluginNet.AbstractionsTests.csproj" />
+    <Project Path="test/AviUtlPluginNet.PreBuiltTests/AviUtlPluginNet.PreBuiltTests.csproj" />
   </Folder>
 </Solution>
