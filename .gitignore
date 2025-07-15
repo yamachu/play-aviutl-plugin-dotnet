@@ -482,3 +482,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+#
+test/AviUtlPluginNet.PreBuiltTests/vendor/*
+!test/AviUtlPluginNet.PreBuiltTests/vendor/.gitkeep
+
