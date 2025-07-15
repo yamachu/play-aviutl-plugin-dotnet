@@ -11,6 +11,7 @@ AviUtl ExEdit2用の.NETプラグインを開発するためのフレームワ�
 - AviUtlプラグインの抽象化
 - Win32 APIラッパー
 - サンプル実装付き
+- 包括的なE2Eテスト
 
 ## ディレクトリ構成
 
@@ -21,6 +22,14 @@ src/
   AviUtlPluginNet.Win32/          # Win32 APIラッパー
   AviUtlPluginNet.Example/        # サンプルプラグイン
   AviUtlPluginNet.SourceGenerator/ # Source Generator
+test/
+  AviUtlPluginNet.AbstractionsTests/ # E2Eテスト
+    Utils/                          # テストユーティリティ
+      PluginFixture.cs              # プラグインビルド・管理
+      NativeInputPluginTableProvider.cs # ネイティブライブラリ操作
+    templates/                      # テスト用プラグインテンプレート
+      TestPlugin.csproj.template    # テストプラグイン用プロジェクトファイル
+    SimpleNativeLibraryE2ETests.cs  # メインのE2Eテスト
 ```
 
 ## Exampleのビルドおよび実行方法
@@ -56,6 +65,7 @@ dotnet publish /p:NativeLib=Shared --use-current-runtime
 
 - 映像と音声が両方あるリソースの対応は現在行なっていません。
 - AUO2形式プラグインの対応は現在行なっていません。
+- E2EテストはSource Generatorが生成したアダプター層の動作を検証します。
 
 ## ライセンス
 
