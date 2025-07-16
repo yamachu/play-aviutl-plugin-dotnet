@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="3.119.0" />
+    <PackageReference Include="UnmanagedDllResolveHelper" Version="1.0.0" />
   </ItemGroup>
 
   <ItemGroup>
