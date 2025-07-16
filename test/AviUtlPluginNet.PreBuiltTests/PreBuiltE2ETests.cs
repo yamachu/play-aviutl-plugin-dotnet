@@ -11,7 +11,7 @@ public class PreBuiltE2ETests : IDisposable
 
     public PreBuiltE2ETests()
     {
-        _pluginTableProvider = new NativePluginTableProviderDynamic($"{Environment.GetEnvironmentVariable("RUN_E2E_TARGET")}");
+        _pluginTableProvider = new NativePluginTableProviderDynamic($"vendor/{Environment.GetEnvironmentVariable("RUN_E2E_TARGET")}");
 
         var tablePtr = _pluginTableProvider.GetInputPluginTable();
         if (tablePtr != IntPtr.Zero)
