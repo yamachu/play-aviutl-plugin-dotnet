@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using AviUtlPluginNet.Abstractions;
 using AviUtlPluginNet.Core.Interop.AUI2;
 using SkiaSharp;
@@ -19,6 +20,10 @@ partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
         // ここに初期化処理を追加できます
         // 例：ログの初期化、設定の読み込み、etc.
         Console.WriteLine("MyPlugin initialized!");
+
+        // 同一ディレクトリに依存ライブラリなどが配置される場合は、そのパスも探索範囲に含めるためにUnmanagedDllResolveHelperを使用する
+        AssemblyLoadContext.Default.ResolvingUnmanagedDll
+            += UnmanagedDllResolveHelper.UnmanagedDllCurrentLibraryLocationResolver.ResolveUnmanagedDll;
     }
 
     public bool FuncClose(PluginImageHandle ih)
