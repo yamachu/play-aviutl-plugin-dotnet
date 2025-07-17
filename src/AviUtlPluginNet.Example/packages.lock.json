@@ -24,6 +24,12 @@
           "SkiaSharp.NativeAssets.macOS": "3.119.0"
         }
       },
+      "UnmanagedDllResolveHelper": {
+        "type": "Direct",
+        "requested": "[1.1.0, )",
+        "resolved": "1.1.0",
+        "contentHash": "/6twmgPBQSymsy7VJrHQQAVNsp6H/7LjHMG5tAChe9ie13ox4+dNILmRwGNaMPNlQEh6P556JbkqFEKs4qmncA=="
+      },
       "SkiaSharp.NativeAssets.macOS": {
         "type": "Transitive",
         "resolved": "3.119.0",
