@@ -26,9 +26,9 @@
       },
       "UnmanagedDllResolveHelper": {
         "type": "Direct",
-        "requested": "[1.0.0, )",
-        "resolved": "1.0.0",
-        "contentHash": "u93QE72snw7lUboldxM38YhHsB9gZF7Nj7spnTWIVvq96/TDfZvrz5E0OZOTIgpN5Xx3XjaA5lFiIXskqF3khQ=="
+        "requested": "[1.1.0, )",
+        "resolved": "1.1.0",
+        "contentHash": "/6twmgPBQSymsy7VJrHQQAVNsp6H/7LjHMG5tAChe9ie13ox4+dNILmRwGNaMPNlQEh6P556JbkqFEKs4qmncA=="
       },
       "SkiaSharp.NativeAssets.macOS": {
         "type": "Transitive",
