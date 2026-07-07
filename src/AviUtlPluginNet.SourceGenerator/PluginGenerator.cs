@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -72,6 +74,23 @@ namespace AviUtlPluginNet.SourceGenerator
                     case "ICommonPlugin":
                         model.IsCommon = true;
                         break;
+                    case "IFilterPlugin":
+                        model.IsFilter = true;
+                        break;
+
+                    // Filter能力
+                    case "IFilterVideo":
+                        model.HasFilterVideo = true;
+                        break;
+                    case "IFilterAudio":
+                        model.HasFilterAudio = true;
+                        break;
+                    case "IFilterInput":
+                        model.HasFilterInput = true;
+                        break;
+                    case "IFilterObject":
+                        model.HasFilterObject = true;
+                        break;
 
                     // Input能力
                     case "IInputVideo" when iface.TypeArguments.Length == 1:
@@ -132,7 +151,11 @@ namespace AviUtlPluginNet.SourceGenerator
                 }
             }
 
+            model.IsPartialClass = context.TargetNode is ClassDeclarationSyntax classDeclaration &&
+                classDeclaration.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword));
+
             CollectScriptFunctions(classSymbol, model);
+            CollectFilterItems(classSymbol, model);
 
             return model;
         }
@@ -171,6 +194,157 @@ namespace AviUtlPluginNet.SourceGenerator
             }
         }
 
+        private static readonly string[] FilterPropertyAttributeNames =
+        {
+            "FilterTrackAttribute", "FilterCheckAttribute", "FilterColorAttribute", "FilterSelectAttribute",
+            "FilterFileAttribute", "FilterFolderAttribute", "FilterStringAttribute", "FilterTextAttribute",
+        };
+
+        /// <summary>
+        /// [FilterTrack] 等が付与されたプロパティ / [FilterButton] メソッドを宣言順に収集する
+        /// [FilterGroup] / [FilterSeparator] は併記されたメンバーの直前に項目として挿入する
+        /// </summary>
+        private static void CollectFilterItems(INamedTypeSymbol classSymbol, PluginModel model)
+        {
+            foreach (var member in classSymbol.GetMembers())
+            {
+                var attributes = member.GetAttributes()
+                    .Where(a => a.AttributeClass?.ContainingNamespace?.ToDisplayString() == AbstractionsNamespace)
+                    .ToList();
+                if (attributes.Count == 0)
+                {
+                    continue;
+                }
+
+                var itemAttribute = attributes.FirstOrDefault(a =>
+                    FilterPropertyAttributeNames.Contains(a.AttributeClass!.Name) ||
+                    a.AttributeClass!.Name == "FilterButtonAttribute");
+                if (itemAttribute == null)
+                {
+                    continue;
+                }
+
+                // グループ・セパレーターを項目の直前に挿入
+                var group = attributes.FirstOrDefault(a => a.AttributeClass!.Name == "FilterGroupAttribute");
+                if (group != null)
+                {
+                    model.FilterItems.Add(new FilterItemInfo
+                    {
+                        Kind = "Group",
+                        Name = group.ConstructorArguments.FirstOrDefault().Value as string ?? "",
+                        GroupDefaultVisible = GetNamedArgument(group, "DefaultVisible") is bool visible ? visible : true,
+                    });
+                }
+                var separator = attributes.FirstOrDefault(a => a.AttributeClass!.Name == "FilterSeparatorAttribute");
+                if (separator != null)
+                {
+                    model.FilterItems.Add(new FilterItemInfo
+                    {
+                        Kind = "Separator",
+                        Name = separator.ConstructorArguments.FirstOrDefault().Value as string ?? "",
+                    });
+                }
+
+                if (itemAttribute.AttributeClass!.Name == "FilterButtonAttribute")
+                {
+                    if (member is not IMethodSymbol method ||
+                        !method.ReturnsVoid || method.IsStatic || method.Parameters.Length != 0 ||
+                        method.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Internal))
+                    {
+                        model.InvalidFilterItems.Add(member.Name);
+                        continue;
+                    }
+                    model.FilterItems.Add(new FilterItemInfo
+                    {
+                        Kind = "Button",
+                        MemberName = method.Name,
+                        Name = itemAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? method.Name,
+                    });
+                    continue;
+                }
+
+                // 値を持つ項目: get専用のpartialプロパティが必要
+                if (member is not IPropertySymbol property ||
+                    !property.IsPartialDefinition || property.IsStatic ||
+                    property.GetMethod == null || property.SetMethod != null ||
+                    property.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Internal))
+                {
+                    model.InvalidFilterItems.Add(member.Name);
+                    continue;
+                }
+
+                var kind = itemAttribute.AttributeClass.Name.Substring("Filter".Length);
+                kind = kind.Substring(0, kind.Length - "Attribute".Length); // Track/Check/Color/Select/File/Folder/String/Text
+
+                var expectedType = kind switch
+                {
+                    "Track" => SpecialType.System_Double,
+                    "Check" => SpecialType.System_Boolean,
+                    "Color" or "Select" => SpecialType.System_Int32,
+                    _ => SpecialType.System_String,
+                };
+                if (property.Type.SpecialType != expectedType)
+                {
+                    model.InvalidFilterItems.Add(member.Name);
+                    continue;
+                }
+
+                var item = new FilterItemInfo
+                {
+                    Kind = kind,
+                    MemberName = property.Name,
+                    Name = itemAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? property.Name,
+                    Accessibility = property.DeclaredAccessibility == Accessibility.Internal ? "internal" : "public",
+                };
+
+                switch (kind)
+                {
+                    case "Track":
+                        item.Default = GetNamedArgument(itemAttribute, "Default") is double d ? d : 0.0;
+                        item.Min = GetNamedArgument(itemAttribute, "Min") is double min ? min : 0.0;
+                        item.Max = GetNamedArgument(itemAttribute, "Max") is double max ? max : 100.0;
+                        item.Step = GetNamedArgument(itemAttribute, "Step") is double step ? step : 1.0;
+                        item.ZeroDisplay = GetNamedArgument(itemAttribute, "ZeroDisplay") as string;
+                        item.SliderRatio = GetNamedArgument(itemAttribute, "SliderRatio") is double ratio ? ratio : 1.0;
+                        break;
+                    case "Check":
+                        item.DefaultBool = GetNamedArgument(itemAttribute, "Default") is bool b && b;
+                        break;
+                    case "Color":
+                    case "Select":
+                        item.DefaultInt = GetNamedArgument(itemAttribute, "Default") is int i ? i : 0;
+                        break;
+                    default:
+                        item.DefaultString = GetNamedArgument(itemAttribute, "Default") as string ?? "";
+                        if (kind == "File")
+                        {
+                            item.FileFilter = GetNamedArgument(itemAttribute, "FileFilter") as string ?? "";
+                        }
+                        break;
+                }
+
+                if (kind == "Select")
+                {
+                    foreach (var selectItem in attributes.Where(a => a.AttributeClass!.Name == "FilterSelectItemAttribute"))
+                    {
+                        var name = selectItem.ConstructorArguments.ElementAtOrDefault(0).Value as string ?? "";
+                        var value = selectItem.ConstructorArguments.ElementAtOrDefault(1).Value is int v ? v : 0;
+                        item.SelectItems.Add((name, value));
+                    }
+                    if (item.SelectItems.Count == 0)
+                    {
+                        model.InvalidFilterItems.Add(member.Name);
+                        continue;
+                    }
+                }
+
+                model.FilterItems.Add(item);
+            }
+        }
+
+        private static object? GetNamedArgument(AttributeData attribute, string name)
+            => attribute.NamedArguments.FirstOrDefault(kv => kv.Key == name).Value.Value;
+
         private static void Execute(SourceProductionContext context, ImmutableArray<PluginModel?> pluginClasses)
         {
             var models = pluginClasses.Where(m => m != null).Cast<PluginModel>().ToList();
@@ -195,14 +369,21 @@ namespace AviUtlPluginNet.SourceGenerator
                 var source = model.IsInput ? GenerateInputNativeLibrary(model)
                     : model.IsOutput ? GenerateOutputNativeLibrary(model)
                     : model.IsScriptModule ? GenerateScriptModuleNativeLibrary(model)
+                    : model.IsFilter ? GenerateFilterNativeLibrary(model)
                     : GenerateCommonNativeLibrary(model);
                 context.AddSource($"{model.ClassName}NativeLibrary.g.cs", SourceText.From(source, Encoding.UTF8));
+
+                // フィルタ設定項目のpartialプロパティ実装を生成
+                if (model.IsFilter && model.FilterItems.Any(f => f.IsValueProperty))
+                {
+                    context.AddSource($"{model.ClassName}.FilterItems.g.cs", SourceText.From(GenerateFilterItemProperties(model), Encoding.UTF8));
+                }
             }
         }
 
         private static bool Validate(SourceProductionContext context, PluginModel model)
         {
-            var kindCount = (model.IsInput ? 1 : 0) + (model.IsOutput ? 1 : 0) + (model.IsScriptModule ? 1 : 0) + (model.IsCommon ? 1 : 0);
+            var kindCount = (model.IsInput ? 1 : 0) + (model.IsOutput ? 1 : 0) + (model.IsScriptModule ? 1 : 0) + (model.IsCommon ? 1 : 0) + (model.IsFilter ? 1 : 0);
 
             if (kindCount == 0)
             {
@@ -246,6 +427,27 @@ namespace AviUtlPluginNet.SourceGenerator
             if (model.IsScriptModule && model.ScriptFunctions.Count == 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Diagnostics.ScriptModuleWithoutFunctions, model.Location, model.ClassName));
+                return false;
+            }
+
+            if (model.InvalidFilterItems.Count > 0)
+            {
+                foreach (var member in model.InvalidFilterItems)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(Diagnostics.InvalidFilterItem, model.Location, model.ClassName, member));
+                }
+                return false;
+            }
+
+            if (model.IsFilter && !model.HasFilterVideo && !model.HasFilterAudio)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Diagnostics.FilterWithoutMedia, model.Location, model.ClassName));
+                return false;
+            }
+
+            if (model.IsFilter && model.FilterItems.Any(f => f.IsValueProperty) && !model.IsPartialClass)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Diagnostics.FilterClassNotPartial, model.Location, model.ClassName));
                 return false;
             }
 
@@ -758,8 +960,326 @@ public static unsafe class {model.ClassName}NativeLibrary
             return builder.ToString();
         }
 
+        private static string GenerateFilterNativeLibrary(PluginModel model)
+        {
+            var cls = model.FullClassName;
+            var items = model.FilterItems;
+
+            var flags = new List<string>();
+            if (model.HasFilterVideo) flags.Add("FilterPluginTableFlag.Video");
+            if (model.HasFilterAudio) flags.Add("FilterPluginTableFlag.Audio");
+            if (model.HasFilterInput) flags.Add("FilterPluginTableFlag.Input");
+            if (model.HasFilterObject) flags.Add("FilterPluginTableFlag.Filter");
+            var flagExpression = flags.Count > 0 ? string.Join(" | ", flags) : "FilterPluginTableFlag.None";
+
+            var builder = new StringBuilder();
+            builder.Append($@"// <auto-generated/>
+#nullable enable
+using System;
+using System.Runtime.InteropServices;
+using AviUtlPluginNet.Abstractions;
+using AviUtlPluginNet.Core.Interop.Filter2;
+
+{(model.Namespace.Length > 0 ? $"namespace {model.Namespace};" : "")}
+
+public static unsafe class {model.ClassName}NativeLibrary
+{{
+    private static readonly {cls} plugin = new {cls}();
+    private static IntPtr pluginTablePtr;
+");
+
+            // 値を持つ項目のネイティブ構造体ポインタ(partialプロパティ実装から参照される)
+            foreach (var item in items.Where(i => i.IsValueProperty))
+            {
+                builder.Append($@"
+    private static {NativeItemStructName(item.Kind)}* item_{item.MemberName};");
+            }
+
+            builder.Append($@"
+
+    [UnmanagedCallersOnly(EntryPoint = ""GetFilterPluginTable"", CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    public static IntPtr GetFilterPluginTable()
+    {{
+        if (pluginTablePtr == IntPtr.Zero)
+        {{
+            // FILTER_ITEM_XXXポインタを列挙してnull終端したリスト
+            var items = (void**)Marshal.AllocHGlobal(sizeof(void*) * {items.Count + 1});
+");
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                builder.Append(GenerateFilterItemInitializer(items[i], i));
+            }
+
+            builder.Append($@"            items[{items.Count}] = null;
+
+            var table = (FILTER_PLUGIN_TABLE*)Marshal.AllocHGlobal(sizeof(FILTER_PLUGIN_TABLE));
+            table->flag = {flagExpression};
+            table->name = Marshal.StringToHGlobalUni({cls}.Name);
+            var label = GetLabel<{cls}>();
+            table->label = label != null ? Marshal.StringToHGlobalUni(label) : IntPtr.Zero;
+            table->information = Marshal.StringToHGlobalUni({cls}.Information);
+            table->items = items;
+            table->func_proc_video = {(model.HasFilterVideo ? "&FuncProcVideo" : "null")};
+            table->func_proc_audio = {(model.HasFilterAudio ? "&FuncProcAudio" : "null")};
+            pluginTablePtr = (IntPtr)table;
+        }}
+        return pluginTablePtr;
+    }}
+
+    // Labelはstatic virtual(既定実装あり)のためジェネリック経由でアクセスする
+    private static string? GetLabel<TPlugin>() where TPlugin : global::{AbstractionsNamespace}.IFilterPlugin
+        => TPlugin.Label;
+");
+
+            if (model.HasFilterVideo)
+            {
+                builder.Append($@"
+    [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    private static bool FuncProcVideo(IntPtr video)
+    {{
+        if (video == IntPtr.Zero) return false;
+        try
+        {{
+            return ((global::{AbstractionsNamespace}.IFilterVideo)plugin).ProcVideo(new global::{AbstractionsNamespace}.FilterVideoContext(video));
+        }}
+        catch
+        {{
+            return false;
+        }}
+    }}
+");
+            }
+
+            if (model.HasFilterAudio)
+            {
+                builder.Append($@"
+    [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    private static bool FuncProcAudio(IntPtr audio)
+    {{
+        if (audio == IntPtr.Zero) return false;
+        try
+        {{
+            return ((global::{AbstractionsNamespace}.IFilterAudio)plugin).ProcAudio(new global::{AbstractionsNamespace}.FilterAudioContext(audio));
+        }}
+        catch
+        {{
+            return false;
+        }}
+    }}
+");
+            }
+
+            // ボタンのトランポリン (コールバック引数はEDIT_SECTION*)
+            foreach (var item in items.Where(i => i.Kind == "Button"))
+            {
+                builder.Append($@"
+    [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    private static void FilterButton_{item.MemberName}(IntPtr edit)
+    {{
+        try
+        {{
+            plugin.{item.MemberName}();
+        }}
+        catch
+        {{
+        }}
+    }}
+");
+            }
+
+            // partialプロパティ実装から呼ばれる値アクセサ
+            foreach (var item in items.Where(i => i.IsValueProperty))
+            {
+                var accessor = item.Kind switch
+                {
+                    "Track" => $"internal static double Get_{item.MemberName}() => item_{item.MemberName} != null ? item_{item.MemberName}->value : {FormatDouble(item.Default)};",
+                    "Check" => $"internal static bool Get_{item.MemberName}() => item_{item.MemberName} != null ? item_{item.MemberName}->value != 0 : {(item.DefaultBool ? "true" : "false")};",
+                    "Color" or "Select" => $"internal static int Get_{item.MemberName}() => item_{item.MemberName} != null ? item_{item.MemberName}->value : {item.DefaultInt};",
+                    _ => $"internal static string Get_{item.MemberName}() => item_{item.MemberName} != null ? (Marshal.PtrToStringUni(item_{item.MemberName}->value) ?? \"\") : \"{EscapeLiteral(item.DefaultString)}\";",
+                };
+                builder.Append($@"
+    {accessor}
+");
+            }
+
+            AppendFeatureExports(builder, model);
+
+            builder.Append(@"}
+");
+            return builder.ToString();
+        }
+
+        private static string NativeItemStructName(string kind) => kind switch
+        {
+            "Track" => "FILTER_ITEM_TRACK",
+            "Check" => "FILTER_ITEM_CHECK",
+            "Color" => "FILTER_ITEM_COLOR",
+            "Select" => "FILTER_ITEM_SELECT",
+            "File" => "FILTER_ITEM_FILE",
+            _ => "FILTER_ITEM_STRING_LIKE", // Folder/String/Text
+        };
+
+        private static string GenerateFilterItemInitializer(FilterItemInfo item, int index)
+        {
+            var name = EscapeLiteral(item.Name);
+            switch (item.Kind)
+            {
+                case "Group":
+                    return $@"            {{
+                var it = (FILTER_ITEM_GROUP*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_GROUP));
+                it->type = Marshal.StringToHGlobalUni(""group"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->default_visible = {(item.GroupDefaultVisible ? "1" : "0")};
+                items[{index}] = it;
+            }}
+";
+                case "Separator":
+                    return $@"            {{
+                var it = (FILTER_ITEM_SEPARATOR*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_SEPARATOR));
+                it->type = Marshal.StringToHGlobalUni(""separator"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                items[{index}] = it;
+            }}
+";
+                case "Button":
+                    return $@"            {{
+                var it = (FILTER_ITEM_BUTTON*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_BUTTON));
+                it->type = Marshal.StringToHGlobalUni(""button"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->callback = &FilterButton_{item.MemberName};
+                items[{index}] = it;
+            }}
+";
+                case "Track":
+                    var zeroDisplay = item.ZeroDisplay == null
+                        ? "IntPtr.Zero"
+                        : $"Marshal.StringToHGlobalUni(\"{EscapeLiteral(item.ZeroDisplay)}\")";
+                    return $@"            {{
+                var it = (FILTER_ITEM_TRACK*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_TRACK));
+                it->type = Marshal.StringToHGlobalUni(""track2"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = {FormatDouble(item.Default)};
+                it->s = {FormatDouble(item.Min)};
+                it->e = {FormatDouble(item.Max)};
+                it->step = {FormatDouble(item.Step)};
+                it->zero_display = {zeroDisplay};
+                it->slider_ratio = {FormatDouble(item.SliderRatio)};
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+                case "Check":
+                    return $@"            {{
+                var it = (FILTER_ITEM_CHECK*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_CHECK));
+                it->type = Marshal.StringToHGlobalUni(""check"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = {(item.DefaultBool ? "1" : "0")};
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+                case "Color":
+                    return $@"            {{
+                var it = (FILTER_ITEM_COLOR*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_COLOR));
+                it->type = Marshal.StringToHGlobalUni(""color"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = {item.DefaultInt};
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+                case "Select":
+                    var listBuilder = new StringBuilder();
+                    listBuilder.Append($@"                var list = (FILTER_ITEM_SELECT_ITEM*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_SELECT_ITEM) * {item.SelectItems.Count + 1});
+");
+                    for (var i = 0; i < item.SelectItems.Count; i++)
+                    {
+                        listBuilder.Append($@"                list[{i}].name = Marshal.StringToHGlobalUni(""{EscapeLiteral(item.SelectItems[i].Name)}"");
+                list[{i}].value = {item.SelectItems[i].Value};
+");
+                    }
+                    listBuilder.Append($@"                list[{item.SelectItems.Count}].name = IntPtr.Zero;
+                list[{item.SelectItems.Count}].value = 0;
+");
+                    return $@"            {{
+{listBuilder}                var it = (FILTER_ITEM_SELECT*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_SELECT));
+                it->type = Marshal.StringToHGlobalUni(""select"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = {item.DefaultInt};
+                it->list = list;
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+                case "File":
+                    return $@"            {{
+                var it = (FILTER_ITEM_FILE*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_FILE));
+                it->type = Marshal.StringToHGlobalUni(""file"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = Marshal.StringToHGlobalUni(""{EscapeLiteral(item.DefaultString)}"");
+                it->filefilter = Marshal.StringToHGlobalUni(""{EscapeLiteral(item.FileFilter)}"");
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+                default: // Folder/String/Text
+                    var type = item.Kind switch
+                    {
+                        "Folder" => "folder",
+                        "Text" => "text",
+                        _ => "string",
+                    };
+                    return $@"            {{
+                var it = (FILTER_ITEM_STRING_LIKE*)Marshal.AllocHGlobal(sizeof(FILTER_ITEM_STRING_LIKE));
+                it->type = Marshal.StringToHGlobalUni(""{type}"");
+                it->name = Marshal.StringToHGlobalUni(""{name}"");
+                it->value = Marshal.StringToHGlobalUni(""{EscapeLiteral(item.DefaultString)}"");
+                item_{item.MemberName} = it;
+                items[{index}] = it;
+            }}
+";
+            }
+        }
+
+        /// <summary>
+        /// 値を持つ設定項目のpartialプロパティ実装を生成する
+        /// getterはネイティブitem構造体の現在値を直接読むため、常にホストの最新値が取得できる
+        /// </summary>
+        private static string GenerateFilterItemProperties(PluginModel model)
+        {
+            var builder = new StringBuilder();
+            builder.Append($@"// <auto-generated/>
+#nullable enable
+
+{(model.Namespace.Length > 0 ? $"namespace {model.Namespace};" : "")}
+
+partial class {model.ClassName}
+{{
+");
+            foreach (var item in model.FilterItems.Where(i => i.IsValueProperty))
+            {
+                var type = item.Kind switch
+                {
+                    "Track" => "double",
+                    "Check" => "bool",
+                    "Color" or "Select" => "int",
+                    _ => "string",
+                };
+                builder.Append($@"    {item.Accessibility} partial {type} {item.MemberName} => {model.ClassName}NativeLibrary.Get_{item.MemberName}();
+");
+            }
+            builder.Append(@"}
+");
+            return builder.ToString();
+        }
+
+        private static string FormatDouble(double value)
+            => value.ToString("R", CultureInfo.InvariantCulture) + "d";
+
         private static string EscapeLiteral(string value)
-            => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            => value.Replace("\\", "\\\\").Replace("\"", "\\\"")
+                .Replace("\0", "\\0").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
 
         /// <summary>
         /// ホストサービス機能(cake機能)の任意エクスポートを生成します
@@ -931,6 +1451,30 @@ public static unsafe class {model.ClassName}NativeLibrary
             Category,
             DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor InvalidFilterItem = new(
+            "AUP0009",
+            "フィルタ設定項目の宣言が不正です",
+            "'{0}.{1}' の宣言が不正です。値を持つ項目は属性に対応した型(Track=double/Check=bool/Color,Select=int/その他=string)の get専用 partial プロパティ、[FilterButton] は引数なしの void インスタンスメソッドである必要があります (Selectは [FilterSelectItem] が1つ以上必要)",
+            Category,
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor FilterWithoutMedia = new(
+            "AUP0010",
+            "フィルタ処理能力インターフェースが実装されていません",
+            "フィルタプラグイン '{0}' は IFilterVideo か IFilterAudio の少なくとも一方を実装する必要があります",
+            Category,
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor FilterClassNotPartial = new(
+            "AUP0011",
+            "フィルタ設定項目を持つクラスは partial である必要があります",
+            "'{0}' は設定項目の partial プロパティ実装を生成するため partial クラスである必要があります",
+            Category,
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 
     internal sealed class ScriptFunctionInfo
@@ -943,6 +1487,31 @@ public static unsafe class {model.ClassName}NativeLibrary
             MethodName = methodName;
             ScriptName = scriptName;
         }
+    }
+
+    internal sealed class FilterItemInfo
+    {
+        // Group / Separator / Button / Track / Check / Color / Select / File / Folder / String / Text
+        public string Kind { get; set; } = "";
+        public string MemberName { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Accessibility { get; set; } = "public";
+
+        public double Default { get; set; }
+        public double Min { get; set; }
+        public double Max { get; set; } = 100.0;
+        public double Step { get; set; } = 1.0;
+        public double SliderRatio { get; set; } = 1.0;
+        public string? ZeroDisplay { get; set; }
+        public bool DefaultBool { get; set; }
+        public int DefaultInt { get; set; }
+        public string DefaultString { get; set; } = "";
+        public string FileFilter { get; set; } = "";
+        public System.Collections.Generic.List<(string Name, int Value)> SelectItems { get; } = new();
+        public bool GroupDefaultVisible { get; set; } = true;
+
+        /// <summary>値を持つ項目(partialプロパティ実装を生成する項目)か</summary>
+        public bool IsValueProperty => Kind is "Track" or "Check" or "Color" or "Select" or "File" or "Folder" or "String" or "Text";
     }
 
     internal sealed class PluginModel
@@ -960,7 +1529,17 @@ public static unsafe class {model.ClassName}NativeLibrary
         public bool IsOutput { get; set; }
         public bool IsScriptModule { get; set; }
         public bool IsCommon { get; set; }
+        public bool IsFilter { get; set; }
         public string? HandleType { get; set; }
+        public bool IsPartialClass { get; set; }
+
+        // Filter能力・設定項目
+        public bool HasFilterVideo { get; set; }
+        public bool HasFilterAudio { get; set; }
+        public bool HasFilterInput { get; set; }
+        public bool HasFilterObject { get; set; }
+        public System.Collections.Generic.List<FilterItemInfo> FilterItems { get; } = new();
+        public System.Collections.Generic.List<string> InvalidFilterItems { get; } = new();
 
         // ScriptModuleの公開関数
         public System.Collections.Generic.List<ScriptFunctionInfo> ScriptFunctions { get; } = new();
