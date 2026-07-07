@@ -16,15 +16,30 @@ public enum InputFlag : int
     /// </summary>
     Audio = 2,
     /// <summary>
-    /// 画像・音声データの同時取得をサポートする ※読み込み関数が同時に呼ばれる
+    /// フレーム番号を時間から算出する ※func_time_to_frame()が呼ばれるようになる
     /// </summary>
-    Concurrent = 16
+    TimeToFrame = 16,
+}
+
+public enum TrackType : int
+{
+    /// <summary>
+    /// 映像
+    /// </summary>
+    Video = 0,
+    /// <summary>
+    /// 音声
+    /// </summary>
+    Audio = 1,
 }
 
 /// <summary>
 /// 入力ファイル情報構造体
-/// 画像フォーマットはRGB24bit,RGBA32bit,YUY2が対応しています
+/// 画像フォーマットはRGB24bit,RGBA32bit,PA64,HF64,YUY2,YC48が対応しています
 /// 音声フォーマットはPCM16bit,PCM(float)32bitが対応しています
+/// ※PA64はDXGI_FORMAT_R16G16B16A16_UNORM(乗算済みα)です
+/// ※HF64はDXGI_FORMAT_R16G16B16A16_FLOAT(乗算済みα)です(内部フォーマット)
+/// ※YC48は互換対応のフォーマットです
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct INPUT_INFO
@@ -82,6 +97,16 @@ public enum InputPluginTableFlag : int
     /// 音声をサポートする
     /// </summary>
     Audio = 2,
+    /// <summary>
+    /// 画像・音声データの同時取得をサポートする
+    /// ※同一ハンドルで画像と音声の取得関数が同時に呼ばれる
+    /// ※異なるハンドルで各関数が同時に呼ばれる
+    /// </summary>
+    Concurrent = 16,
+    /// <summary>
+    /// マルチトラックをサポートする ※func_set_track()が呼ばれるようになる
+    /// </summary>
+    MultiTrack = 32,
 }
 
 /// <summary>
@@ -150,5 +175,24 @@ public unsafe struct INPUT_PLUGIN_TABLE
     /// <returns>TRUEなら成功</returns>
     /// </summary>
     public delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> func_config;
+    /// <summary>
+    /// 入力ファイルの読み込み対象トラックを設定する関数へのポインタ (FLAG_MULTI_TRACKが有効の時のみ呼ばれます)
+    /// <param name="ih">入力ファイルハンドル（INPUT_HANDLE）</param>
+    /// <param name="type">トラックの種類 (TrackType)</param>
+    /// <param name="index">トラック番号 ( -1 が指定された場合はトラック数の取得 )</param>
+    /// <returns>設定したトラック番号 (失敗した場合は -1 を返却)
+    ///			  トラック数の取得の場合は設定可能なトラックの数 (メディアが無い場合は 0 を返却)
+    /// </summary>
+    public delegate* unmanaged[Stdcall]<IntPtr, int, int, int> func_set_track;
+
+    /// <summary>
+    /// 映像の時間から該当フレーム番号を算出する時に呼ばれる関数へのポインタ (FLAG_TIME_TO_FRAMEが有効の時のみ呼ばれます)
+    /// 画像データを読み込む前に呼び出され、結果のフレーム番号で読み込むようになります。
+    /// ※FLAG_TIME_TO_FRAMEを利用する場合のINPUT_INFOのrate,scale情報は平均フレームレートを表す値を設定してください
+    /// <param name="ih">入力ファイルハンドル（INPUT_HANDLE）</param>
+    /// <param name="time">映像の時間(秒)</param>
+    /// <returns>映像の時間に対応するフレーム番号</returns>
+    /// </summary>
+    public delegate* unmanaged[Stdcall]<IntPtr, double, int> func_time_to_frame;
 }
 
