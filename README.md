@@ -38,16 +38,16 @@ test/
 
 ## Exampleのビルドおよび実行方法
 
-1. .NET 9.0 SDKをインストールしてください。
+1. .NET 10.0 SDKをインストールしてください。
 2. `./src/AviUtlPluginNet.Example` ディレクトリで以下のコマンドを実行します。
 
 ```sh
 dotnet publish /p:NativeLib=Shared --use-current-runtime
 ```
 
-3. `./src/AviUtlPluginNet.Example/bin/Release/net9.0/win-x64/publish/` ディレクトリに生成されたDLLを `C:\ProgramData\aviutl2\Plugin` にコピーします。
+3. `./src/AviUtlPluginNet.Example/bin/Release/net10.0/win-x64/publish/` ディレクトリに生成されたDLLを `C:\ProgramData\aviutl2\Plugin` にコピーします。
 4. コピーしたDLLの拡張子を `.dll` から `.aui2` に変更します。
-5. `./src/AviUtlPluginNet.Example/bin/Release/net9.0/win-x64/publish/` ディレクトリに存在する `libSkiaSharp.dll` を aviutl2.exe と同じディレクトリにコピーします。
+5. `./src/AviUtlPluginNet.Example/bin/Release/net10.0/win-x64/publish/` ディレクトリに存在する `libSkiaSharp.dll` を aviutl2.exe と同じディレクトリにコピーします。
 
 ## Pluginの実装方法
 
