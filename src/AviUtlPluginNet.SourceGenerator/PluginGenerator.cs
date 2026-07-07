@@ -66,6 +66,12 @@ namespace AviUtlPluginNet.SourceGenerator
                     case "IOutputPlugin":
                         model.IsOutput = true;
                         break;
+                    case "IScriptModulePlugin":
+                        model.IsScriptModule = true;
+                        break;
+                    case "ICommonPlugin":
+                        model.IsCommon = true;
+                        break;
 
                     // Input能力
                     case "IInputVideo" when iface.TypeArguments.Length == 1:
@@ -114,6 +120,9 @@ namespace AviUtlPluginNet.SourceGenerator
                     case "IUseConfig":
                         model.HasConfig = true;
                         break;
+                    case "IUseCache":
+                        model.HasCache = true;
+                        break;
                     case "IPluginLifecycle":
                         model.HasLifecycle = true;
                         break;
@@ -123,7 +132,43 @@ namespace AviUtlPluginNet.SourceGenerator
                 }
             }
 
+            CollectScriptFunctions(classSymbol, model);
+
             return model;
+        }
+
+        /// <summary>
+        /// [ScriptFunction] が付与されたメソッドを収集する
+        /// 有効なシグネチャ: private/protectedでない void Method(ScriptModuleContext)
+        /// </summary>
+        private static void CollectScriptFunctions(INamedTypeSymbol classSymbol, PluginModel model)
+        {
+            foreach (var method in classSymbol.GetMembers().OfType<IMethodSymbol>())
+            {
+                var attribute = method.GetAttributes().FirstOrDefault(a =>
+                    a.AttributeClass?.Name == "ScriptFunctionAttribute" &&
+                    a.AttributeClass.ContainingNamespace?.ToDisplayString() == AbstractionsNamespace);
+                if (attribute == null)
+                {
+                    continue;
+                }
+
+                var isValidSignature =
+                    method.ReturnsVoid &&
+                    !method.IsStatic &&
+                    method.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal &&
+                    method.Parameters.Length == 1 &&
+                    method.Parameters[0].Type.Name == "ScriptModuleContext" &&
+                    method.Parameters[0].Type.ContainingNamespace?.ToDisplayString() == AbstractionsNamespace;
+                if (!isValidSignature)
+                {
+                    model.InvalidScriptFunctions.Add(method.Name);
+                    continue;
+                }
+
+                var scriptName = attribute.ConstructorArguments.FirstOrDefault().Value as string ?? method.Name;
+                model.ScriptFunctions.Add(new ScriptFunctionInfo(method.Name, scriptName));
+            }
         }
 
         private static void Execute(SourceProductionContext context, ImmutableArray<PluginModel?> pluginClasses)
@@ -147,22 +192,25 @@ namespace AviUtlPluginNet.SourceGenerator
                     continue;
                 }
 
-                var source = model.IsInput
-                    ? GenerateInputNativeLibrary(model)
-                    : GenerateOutputNativeLibrary(model);
+                var source = model.IsInput ? GenerateInputNativeLibrary(model)
+                    : model.IsOutput ? GenerateOutputNativeLibrary(model)
+                    : model.IsScriptModule ? GenerateScriptModuleNativeLibrary(model)
+                    : GenerateCommonNativeLibrary(model);
                 context.AddSource($"{model.ClassName}NativeLibrary.g.cs", SourceText.From(source, Encoding.UTF8));
             }
         }
 
         private static bool Validate(SourceProductionContext context, PluginModel model)
         {
-            if (!model.IsInput && !model.IsOutput)
+            var kindCount = (model.IsInput ? 1 : 0) + (model.IsOutput ? 1 : 0) + (model.IsScriptModule ? 1 : 0) + (model.IsCommon ? 1 : 0);
+
+            if (kindCount == 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Diagnostics.NoPluginKind, model.Location, model.ClassName));
                 return false;
             }
 
-            if (model.IsInput && model.IsOutput)
+            if (kindCount > 1)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Diagnostics.MultiplePluginKinds, model.Location, model.ClassName));
                 return false;
@@ -183,6 +231,21 @@ namespace AviUtlPluginNet.SourceGenerator
             if (model.HasOutputImageOnly && !model.HasOutputVideo)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Diagnostics.ImageOnlyWithoutVideo, model.Location, model.ClassName));
+                return false;
+            }
+
+            if (model.InvalidScriptFunctions.Count > 0)
+            {
+                foreach (var method in model.InvalidScriptFunctions)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(Diagnostics.InvalidScriptFunction, model.Location, model.ClassName, method));
+                }
+                return false;
+            }
+
+            if (model.IsScriptModule && model.ScriptFunctions.Count == 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Diagnostics.ScriptModuleWithoutFunctions, model.Location, model.ClassName));
                 return false;
             }
 
@@ -561,6 +624,143 @@ public static unsafe class {model.ClassName}NativeLibrary
             return builder.ToString();
         }
 
+        private static string GenerateScriptModuleNativeLibrary(PluginModel model)
+        {
+            var cls = model.FullClassName;
+            var functionCount = model.ScriptFunctions.Count;
+
+            var builder = new StringBuilder();
+            builder.Append($@"// <auto-generated/>
+#nullable enable
+using System;
+using System.Runtime.InteropServices;
+using AviUtlPluginNet.Abstractions;
+using AviUtlPluginNet.Core.Interop.Module2;
+
+{(model.Namespace.Length > 0 ? $"namespace {model.Namespace};" : "")}
+
+public static unsafe class {model.ClassName}NativeLibrary
+{{
+    private static readonly {cls} plugin = new {cls}();
+    private static IntPtr pluginTablePtr;
+
+    [UnmanagedCallersOnly(EntryPoint = ""GetScriptModuleTable"", CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    public static IntPtr GetScriptModuleTable()
+    {{
+        if (pluginTablePtr == IntPtr.Zero)
+        {{
+            // 関数名がnullの要素で終端するリスト
+            var functions = (SCRIPT_MODULE_FUNCTION*)Marshal.AllocHGlobal(sizeof(SCRIPT_MODULE_FUNCTION) * {functionCount + 1});
+");
+
+            for (var i = 0; i < functionCount; i++)
+            {
+                var function = model.ScriptFunctions[i];
+                builder.Append($@"            functions[{i}].name = Marshal.StringToHGlobalUni(""{EscapeLiteral(function.ScriptName)}"");
+            functions[{i}].func = &ScriptFunc_{function.MethodName};
+");
+            }
+
+            builder.Append($@"            functions[{functionCount}].name = IntPtr.Zero;
+            functions[{functionCount}].func = null;
+
+            var table = (SCRIPT_MODULE_TABLE*)Marshal.AllocHGlobal(sizeof(SCRIPT_MODULE_TABLE));
+            table->information = Marshal.StringToHGlobalUni({cls}.Information);
+            table->functions = functions;
+            pluginTablePtr = (IntPtr)table;
+        }}
+        return pluginTablePtr;
+    }}
+");
+
+            foreach (var function in model.ScriptFunctions)
+            {
+                builder.Append($@"
+    [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    private static void ScriptFunc_{function.MethodName}(IntPtr param)
+    {{
+        var context = new global::{AbstractionsNamespace}.ScriptModuleContext(param);
+        try
+        {{
+            plugin.{function.MethodName}(context);
+        }}
+        catch (Exception ex)
+        {{
+            try
+            {{
+                context.SetError(ex.Message);
+            }}
+            catch
+            {{
+            }}
+        }}
+    }}
+");
+            }
+
+            AppendFeatureExports(builder, model);
+
+            builder.Append(@"}
+");
+            return builder.ToString();
+        }
+
+        private static string GenerateCommonNativeLibrary(PluginModel model)
+        {
+            var cls = model.FullClassName;
+
+            var builder = new StringBuilder();
+            builder.Append($@"// <auto-generated/>
+#nullable enable
+using System;
+using System.Runtime.InteropServices;
+using AviUtlPluginNet.Abstractions;
+using AviUtlPluginNet.Core.Interop.Plugin2;
+
+{(model.Namespace.Length > 0 ? $"namespace {model.Namespace};" : "")}
+
+public static unsafe class {model.ClassName}NativeLibrary
+{{
+    private static readonly {cls} plugin = new {cls}();
+    private static IntPtr pluginTablePtr;
+
+    [UnmanagedCallersOnly(EntryPoint = ""GetCommonPluginTable"", CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    public static IntPtr GetCommonPluginTable()
+    {{
+        if (pluginTablePtr == IntPtr.Zero)
+        {{
+            var table = (COMMON_PLUGIN_TABLE*)Marshal.AllocHGlobal(sizeof(COMMON_PLUGIN_TABLE));
+            table->name = Marshal.StringToHGlobalUni({cls}.Name);
+            table->information = Marshal.StringToHGlobalUni({cls}.Information);
+            pluginTablePtr = (IntPtr)table;
+        }}
+        return pluginTablePtr;
+    }}
+
+    [UnmanagedCallersOnly(EntryPoint = ""RegisterPlugin"", CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    public static void RegisterPlugin(IntPtr host)
+    {{
+        if (host == IntPtr.Zero) return;
+        try
+        {{
+            ((global::{AbstractionsNamespace}.ICommonPlugin)plugin).Register(new global::{AbstractionsNamespace}.NativeHostApp(host));
+        }}
+        catch
+        {{
+        }}
+    }}
+");
+
+            AppendFeatureExports(builder, model);
+
+            builder.Append(@"}
+");
+            return builder.ToString();
+        }
+
+        private static string EscapeLiteral(string value)
+            => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
         /// <summary>
         /// ホストサービス機能(cake機能)の任意エクスポートを生成します
         /// 新しい機能(例: cache2のIUseCache)はここにエクスポートを追加するだけで対応できます
@@ -595,6 +795,24 @@ public static unsafe class {model.ClassName}NativeLibrary
         try
         {{
             ((global::{AbstractionsNamespace}.IUseConfig)plugin).AttachConfig(new global::{AbstractionsNamespace}.NativeConfig2(config));
+        }}
+        catch
+        {{
+        }}
+    }}
+");
+            }
+
+            if (model.HasCache)
+            {
+                builder.Append($@"
+    [UnmanagedCallersOnly(EntryPoint = ""InitializeCache"", CallConvs = new[] {{ typeof(System.Runtime.CompilerServices.CallConvStdcall) }})]
+    public static void InitializeCache(IntPtr cache)
+    {{
+        if (cache == IntPtr.Zero) return;
+        try
+        {{
+            ((global::{AbstractionsNamespace}.IUseCache)plugin).AttachCache(new global::{AbstractionsNamespace}.NativeCache2(cache));
         }}
         catch
         {{
@@ -653,7 +871,7 @@ public static unsafe class {model.ClassName}NativeLibrary
         public static readonly DiagnosticDescriptor NoPluginKind = new(
             "AUP0001",
             "プラグイン種別インターフェースが実装されていません",
-            "[AviUtl2Plugin] クラス '{0}' はプラグイン種別インターフェース (IInputPlugin<THandle> / IOutputPlugin) を実装する必要があります",
+            "[AviUtl2Plugin] クラス '{0}' はプラグイン種別インターフェース (IInputPlugin<THandle> / IOutputPlugin / IScriptModulePlugin / ICommonPlugin) を実装する必要があります",
             Category,
             DiagnosticSeverity.Error,
             isEnabledByDefault: true);
@@ -697,6 +915,34 @@ public static unsafe class {model.ClassName}NativeLibrary
             Category,
             DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor ScriptModuleWithoutFunctions = new(
+            "AUP0007",
+            "[ScriptFunction] メソッドが定義されていません",
+            "スクリプトモジュール '{0}' は [ScriptFunction] を付与したメソッドを1つ以上定義する必要があります",
+            Category,
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor InvalidScriptFunction = new(
+            "AUP0008",
+            "[ScriptFunction] メソッドのシグネチャが不正です",
+            "'{0}.{1}' のシグネチャが不正です。[ScriptFunction] メソッドは public/internal のインスタンスメソッドで 'void Method(ScriptModuleContext context)' である必要があります",
+            Category,
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+    }
+
+    internal sealed class ScriptFunctionInfo
+    {
+        public string MethodName { get; }
+        public string ScriptName { get; }
+
+        public ScriptFunctionInfo(string methodName, string scriptName)
+        {
+            MethodName = methodName;
+            ScriptName = scriptName;
+        }
     }
 
     internal sealed class PluginModel
@@ -712,7 +958,13 @@ public static unsafe class {model.ClassName}NativeLibrary
         // 種別
         public bool IsInput { get; set; }
         public bool IsOutput { get; set; }
+        public bool IsScriptModule { get; set; }
+        public bool IsCommon { get; set; }
         public string? HandleType { get; set; }
+
+        // ScriptModuleの公開関数
+        public System.Collections.Generic.List<ScriptFunctionInfo> ScriptFunctions { get; } = new();
+        public System.Collections.Generic.List<string> InvalidScriptFunctions { get; } = new();
 
         // Input能力
         public bool HasInputVideo { get; set; }
@@ -733,6 +985,7 @@ public static unsafe class {model.ClassName}NativeLibrary
         // ホストサービス機能
         public bool HasLogger { get; set; }
         public bool HasConfig { get; set; }
+        public bool HasCache { get; set; }
         public bool HasLifecycle { get; set; }
         public bool HasRequiredVersion { get; set; }
     }
