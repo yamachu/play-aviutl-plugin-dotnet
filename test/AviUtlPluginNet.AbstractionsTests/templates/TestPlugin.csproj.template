@@ -15,6 +15,15 @@
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.0" />
   </ItemGroup>
 
+  <!--
+    Linux では NativeAOT 共有ライブラリの P/Invoke 解決がプロセス実行ファイル基準となり、
+    プラグイン隣の libSkiaSharp.so を見つけられない。
+    RUNPATH に $ORIGIN を追加することで、プレーン名の dlopen が自身の隣を探索できるようにする。
+  -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <LinkerArg Include="-Wl,-rpath,'$ORIGIN'" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="$(ProjectSolutionDir)\AviUtlPluginNet.Abstractions\AviUtlPluginNet.Abstractions.csproj" />
     <ProjectReference Include="$(ProjectSolutionDir)\AviUtlPluginNet.Core\AviUtlPluginNet.Core.csproj" />

@@ -10,6 +10,18 @@ namespace AviUtlPluginNet.Example;
 [AviUtl2Plugin]
 class MyPlugin : IInputVideo<PluginImageHandle>, IUseLogger, IPluginLifecycle
 {
+    // 同一ディレクトリに配置された依存ネイティブライブラリ (libSkiaSharp.so/.dylib 等) を
+    // P/Invoke が発生する前に探索範囲へ加える。
+    // AttachLogger より先に Open が呼ばれる場合があるため static コンストラクタで登録する。
+    static MyPlugin()
+    {
+        // ここに初期化処理を追加できます
+        // 例：ログの初期化、設定の読み込み、etc.
+        Console.WriteLine("MyPlugin initialized!");
+        AssemblyLoadContext.Default.ResolvingUnmanagedDll
+            += UnmanagedDllResolveHelper.UnmanagedDllCurrentLibraryLocationResolver.ResolveUnmanagedDll;
+    }
+
     public static string Name => ".NET Example Input Plugin";
     public static string FileFilter => "All Files (*.*)\0*.*\0";
     public static string Information => ".NET NativeAOT AviUtl Input Plugin Example";
@@ -19,13 +31,6 @@ class MyPlugin : IInputVideo<PluginImageHandle>, IUseLogger, IPluginLifecycle
     // ホストからログ出力機能が注入される (IUseLogger)
     public void AttachLogger(ILogger2 logger)
     {
-        // ここに初期化処理を追加できます
-        // 例：ログの初期化、設定の読み込み、etc.
-        Console.WriteLine("MyPlugin initialized!");
-
-        // 同一ディレクトリに依存ライブラリなどが配置される場合は、そのパスも探索範囲に含めるためにUnmanagedDllResolveHelperを使用する
-        AssemblyLoadContext.Default.ResolvingUnmanagedDll
-            += UnmanagedDllResolveHelper.UnmanagedDllCurrentLibraryLocationResolver.ResolveUnmanagedDll;
         _logger = logger;
     }
 
