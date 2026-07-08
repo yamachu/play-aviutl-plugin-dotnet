@@ -63,14 +63,8 @@ dotnet publish /p:NativeLib=Shared --use-current-runtime
 ```
 
 2. Pluginで読み込むリソースを管理するクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputHandle` を実装している必要があります。
-3. Pluginのメインクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputPluginAPI` を実装している必要があります。
-4. Pluginのクラスに `AviUtlPluginNet.Abstractions.Attribute.AviUtl2InputPluginAttribute` 属性を付与します。
-
-## NOTE
-
-- 映像と音声が両方あるリソースの対応は現在行なっていません。
-- AUO2形式プラグインの対応は現在行なっていません。
-- E2EテストはSource Generatorが生成したアダプター層の動作を検証します。
+3. Pluginのメインクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputPlugin<THandle>` を実装し、さらに `AviUtlPluginNet.Abstractions.IInputVideo<THandle>` または `AviUtlPluginNet.Abstractions.IInputAudio<THandle>` の少なくとも一方を実装する必要があります。
+4. Pluginのクラスに `AviUtlPluginNet.Abstractions.AviUtl2PluginAttribute`（`[AviUtl2Plugin]`）属性を付与します。
 
 ## テストの実行方法
 
