@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,11 +9,6 @@
     <!-- For debugging source generators -->
     <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="3.119.0" />
-    <PackageReference Include="UnmanagedDllResolveHelper" Version="1.1.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AviUtlPluginNet.Abstractions\AviUtlPluginNet.Abstractions.csproj" />

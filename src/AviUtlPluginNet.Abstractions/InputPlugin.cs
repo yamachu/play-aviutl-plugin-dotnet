@@ -1,202 +1,128 @@
 ﻿namespace AviUtlPluginNet.Abstractions;
 
-using System.Runtime.InteropServices;
+using System;
 using AviUtlPluginNet.Core.Interop.AUI2;
 
 /// <summary>
-/// AviUtl2 Inputプラグインのハンドルインターフェース
+/// 入力プラグインの種別インターフェース (input2.h / GetInputPluginTable)
+/// 能力は <see cref="IInputVideo{THandle}"/> / <see cref="IInputAudio{THandle}"/> 等を
+/// 追加実装することで有効化されます (少なくともどちらか一方は必須)
 /// </summary>
-public interface IInputHandle : IDisposable;
-
-/// <summary>
-/// 設定ダイアログなしプラグインのマーカーインターフェース
-/// このインターフェースを実装したプラグインは、自動的にfunc_configがnullに設定される
-/// </summary>
-public interface IWithoutConfig : IInputPluginAPI
+/// <typeparam name="THandle">入力ファイルハンドルの型</typeparam>
+public interface IInputPlugin<THandle> : IAviUtl2Plugin
+    where THandle : class, IInputHandle
 {
     /// <summary>
-    /// 設定ダイアログが利用可能かどうかを示します
+    /// 入力ファイルフィルタ (例: "AviFile (*.avi)\0*.avi\0")
     /// </summary>
-    static virtual bool HasConfig => false;
+    static abstract string FileFilter { get; }
 
-    bool IInputPluginAPI.FuncConfig(IntPtr hwnd, IntPtr hInstance)
-        => false; // 設定ダイアログなし
-}
-
-/// <summary>
-/// 入力プラグインAPIの共通インターフェース
-/// </summary>
-public interface IInputPluginAPI
-{
-    static abstract ref INPUT_PLUGIN_TABLE pluginTable { get; }
-    static abstract ref IntPtr pluginTablePtr { get; }
-
-    #region Public API
-    IInputHandle? FuncOpen(string file);
-    bool FuncClose(IInputHandle ih);
-    bool FuncInfoGet(IInputHandle ih, out INPUT_INFO? info);
-    Span<byte> FuncReadVideo(IInputHandle ih, int frame);
-    Span<byte> FuncReadAudio(IInputHandle ih, int start, int length);
-    bool FuncConfig(IntPtr hwnd, IntPtr hInstance);
-    #endregion
-
-    public static IntPtr GetPluginTablePtr<TPlugin>() where TPlugin : IInputPluginAPI
-        => TPlugin.pluginTablePtr;
-}
-
-/// <summary>
-/// 入力プラグインの共通ジェネリックインターフェース
-/// </summary>
-public interface IInputPlugin<TVideo, TAudio> : IInputPluginAPI
-    where TVideo : IInputHandle
-    where TAudio : IInputHandle
-{
-    #region Plugin Metadata
-    static abstract string name { get; }
-    static abstract string fileFilter { get; }
-    static abstract string information { get; }
-    #endregion
-
-    #region Plugin Configuration
     /// <summary>
-    /// 設定ダイアログが利用可能かどうかを示します
+    /// 入力ファイルをオープンします
     /// </summary>
-    static virtual bool HasConfig => true;
-    #endregion
+    /// <param name="file">ファイル名</param>
+    /// <returns>入力ファイルハンドル (失敗時はnull)</returns>
+    THandle? Open(string file);
 
-    #region Internal
-    static IntPtr _pluginTablePtr;
-    #endregion
+    /// <summary>
+    /// 入力ファイルをクローズします
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <returns>成功時はtrue</returns>
+    bool Close(THandle handle);
 
-    unsafe static void InitPluginTable<TPlugin>(
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr> funcOpen,
-        delegate* unmanaged[Stdcall]<IntPtr, bool> funcClose,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcInfoGet,
-        delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
-        delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-    ) where TPlugin : IInputPlugin<TVideo, TAudio>
-    {
-        // 既存領域の解放
-        if (_pluginTablePtr != IntPtr.Zero)
-        {
-            Marshal.FreeHGlobal(_pluginTablePtr);
-            _pluginTablePtr = IntPtr.Zero;
-        }
-        // INPUT_PLUGIN_TABLE用のアンマネージド領域を確保
-        _pluginTablePtr = Marshal.AllocHGlobal(sizeof(INPUT_PLUGIN_TABLE));
-        var namePtr = Marshal.StringToHGlobalUni(TPlugin.name);
-        var fileFilterPtr = Marshal.StringToHGlobalUni(TPlugin.fileFilter);
-        var informationPtr = Marshal.StringToHGlobalUni(TPlugin.information);
-        var table = (INPUT_PLUGIN_TABLE*)_pluginTablePtr;
-        table->flag = InputPluginTableFlag.None;
-        table->name = namePtr;
-        table->filefilter = fileFilterPtr;
-        table->information = informationPtr;
-        table->func_open = funcOpen;
-        table->func_close = funcClose;
-        table->func_info_get = funcInfoGet;
-        table->func_read_video = funcReadVideo;
-        table->func_read_audio = funcReadAudio;
-
-        // HasConfigプロパティを使用して設定ダイアログの有無を判定
-        if (TPlugin.HasConfig)
-        {
-            table->func_config = funcConfig;
-        }
-        else
-        {
-            table->func_config = null;
-        }
-    }
-
-    unsafe static ref INPUT_PLUGIN_TABLE IInputPluginAPI.pluginTable
-        => ref *(INPUT_PLUGIN_TABLE*)_pluginTablePtr;
-    static ref IntPtr IInputPluginAPI.pluginTablePtr => ref _pluginTablePtr;
+    /// <summary>
+    /// 入力ファイル情報を取得します
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <param name="info">入力ファイル情報</param>
+    /// <returns>成功時はtrue</returns>
+    bool TryGetInfo(THandle handle, out INPUT_INFO info);
 }
 
 /// <summary>
-/// 映像入力プラグイン（設定ダイアログなし）用インターフェース
+/// 画像データの読み込み能力 (FLAG_VIDEO / func_read_video)
 /// </summary>
-public interface IInputVideoPlugin<T> : IInputPlugin<T, IInputHandle> where T : IInputHandle
+public interface IInputVideo<THandle> : IInputPlugin<THandle>
+    where THandle : class, IInputHandle
 {
-    unsafe static new void InitPluginTable<TPlugin>(
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr> funcOpen,
-        delegate* unmanaged[Stdcall]<IntPtr, bool> funcClose,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcInfoGet,
-        delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
-        delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-    ) where TPlugin : IInputVideoPlugin<T>
-    {
-        IInputPlugin<T, IInputHandle>.InitPluginTable<TPlugin>(funcOpen, funcClose, funcInfoGet, funcReadVideo, funcReadAudio, funcConfig);
-        ref var table = ref TPlugin.pluginTable;
-        table.flag = InputPluginTableFlag.Video;
-    }
-
-    #region Public Type-Safe API
-    bool FuncClose(T ih);
-    bool FuncInfoGet(T ih, out INPUT_INFO? info);
-    Span<byte> FuncReadVideo(T ih, int n);
-    #endregion
-
-    bool IInputPluginAPI.FuncClose(IInputHandle ih)
-        => ih is T t && FuncClose(t);
-
-    bool IInputPluginAPI.FuncInfoGet(IInputHandle ih, out INPUT_INFO? info)
-    {
-        if (ih is T t)
-            return FuncInfoGet(t, out info);
-        info = null;
-        return false;
-    }
-
-    Span<byte> IInputPluginAPI.FuncReadVideo(IInputHandle ih, int n)
-        => ih is T t ? FuncReadVideo(t, n) : Span<byte>.Empty;
-
-    Span<byte> IInputPluginAPI.FuncReadAudio(IInputHandle ih, int start, int length)
-        => Span<byte>.Empty; // 映像プラグインは音声未対応
+    /// <summary>
+    /// 画像データを読み込みます
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <param name="frame">読み込むフレーム番号</param>
+    /// <returns>読み込んだフレームのデータ (空なら失敗)</returns>
+    Span<byte> ReadVideo(THandle handle, int frame);
 }
 
 /// <summary>
-/// 音声入力プラグイン（設定ダイアログなし）用インターフェース
+/// 音声データの読み込み能力 (FLAG_AUDIO / func_read_audio)
 /// </summary>
-public interface IInputAudioPlugin<T> : IInputPlugin<IInputHandle, T> where T : IInputHandle
+public interface IInputAudio<THandle> : IInputPlugin<THandle>
+    where THandle : class, IInputHandle
 {
-    unsafe static new void InitPluginTable<TPlugin>(
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr> funcOpen,
-        delegate* unmanaged[Stdcall]<IntPtr, bool> funcClose,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcInfoGet,
-        delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr, int> funcReadVideo,
-        delegate* unmanaged[Stdcall]<IntPtr, int, int, IntPtr, int> funcReadAudio,
-        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, bool> funcConfig
-    ) where TPlugin : IInputAudioPlugin<T>
-    {
-        IInputPlugin<IInputHandle, T>.InitPluginTable<TPlugin>(funcOpen, funcClose, funcInfoGet, funcReadVideo, funcReadAudio, funcConfig);
-        ref var table = ref TPlugin.pluginTable;
-        table.flag = InputPluginTableFlag.Audio;
-    }
+    /// <summary>
+    /// 音声データを読み込みます
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <param name="start">読み込み開始サンプル番号</param>
+    /// <param name="length">読み込むサンプル数</param>
+    /// <returns>読み込んだサンプルのデータ (空なら失敗)</returns>
+    Span<byte> ReadAudio(THandle handle, int start, int length);
+}
 
-    #region Public Type-Safe API
-    bool FuncClose(T ih);
-    bool FuncInfoGet(T ih, out INPUT_INFO? info);
-    Span<byte> FuncReadAudio(T ih, int start, int length);
-    #endregion
+/// <summary>
+/// 画像・音声データの同時取得サポートのマーカー (FLAG_CONCURRENT)
+/// ※同一ハンドルで画像と音声の取得関数が同時に呼ばれる
+/// ※異なるハンドルで各関数が同時に呼ばれる
+/// </summary>
+public interface IInputConcurrent;
 
-    bool IInputPluginAPI.FuncClose(IInputHandle ih)
-        => ih is T t && FuncClose(t);
+/// <summary>
+/// マルチトラック能力 (FLAG_MULTI_TRACK / func_set_track)
+/// </summary>
+public interface IInputMultiTrack<THandle> : IInputPlugin<THandle>
+    where THandle : class, IInputHandle
+{
+    /// <summary>
+    /// 入力ファイルの読み込み対象トラックを設定します
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <param name="type">トラックの種類</param>
+    /// <param name="index">トラック番号 (-1が指定された場合はトラック数の取得)</param>
+    /// <returns>設定したトラック番号 (失敗した場合は-1)
+    /// トラック数の取得の場合は設定可能なトラックの数 (メディアが無い場合は0)</returns>
+    int SetTrack(THandle handle, TrackType type, int index);
+}
 
-    bool IInputPluginAPI.FuncInfoGet(IInputHandle ih, out INPUT_INFO? info)
-    {
-        if (ih is T t)
-            return FuncInfoGet(t, out info);
-        info = null;
-        return false;
-    }
+/// <summary>
+/// 映像の時間からフレーム番号を算出する能力 (func_time_to_frame)
+/// ※INPUT_INFOのflagにFLAG_TIME_TO_FRAMEを設定した場合に呼ばれます
+/// ※利用する場合のINPUT_INFOのrate,scale情報は平均フレームレートを表す値を設定してください
+/// </summary>
+public interface IInputTimeToFrame<THandle> : IInputPlugin<THandle>
+    where THandle : class, IInputHandle
+{
+    /// <summary>
+    /// 映像の時間から該当フレーム番号を算出します
+    /// </summary>
+    /// <param name="handle">入力ファイルハンドル</param>
+    /// <param name="time">映像の時間(秒)</param>
+    /// <returns>映像の時間に対応するフレーム番号</returns>
+    int TimeToFrame(THandle handle, double time);
+}
 
-    Span<byte> IInputPluginAPI.FuncReadVideo(IInputHandle ih, int n)
-        => Span<byte>.Empty; // 音声プラグインは映像未対応
-
-    Span<byte> IInputPluginAPI.FuncReadAudio(IInputHandle ih, int start, int length)
-        => ih is T t ? FuncReadAudio(t, start, length) : Span<byte>.Empty;
+/// <summary>
+/// 入力設定ダイアログ能力 (func_config)
+/// 実装しない場合はfunc_configがnullに設定され、ダイアログは表示されません
+/// </summary>
+public interface IInputConfigDialog
+{
+    /// <summary>
+    /// 入力設定のダイアログを表示します
+    /// </summary>
+    /// <param name="hwnd">ウィンドウハンドル</param>
+    /// <param name="dllHInstance">インスタンスハンドル</param>
+    /// <returns>成功時はtrue</returns>
+    bool Config(IntPtr hwnd, IntPtr dllHInstance);
 }

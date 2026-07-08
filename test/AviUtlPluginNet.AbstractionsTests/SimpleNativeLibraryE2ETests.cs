@@ -1,6 +1,9 @@
-﻿using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using AviUtlPluginNet.AbstractionsTests.Utils;
 using AviUtlPluginNet.Core.Interop.AUI2;
+using AviUtlPluginNet.Core.Interop.Logger2;
 
 namespace AviUtlPluginNet.AbstractionsTests;
 
@@ -31,29 +34,35 @@ public class SimpleNativeLibraryE2ETestsFixture : IDisposable
 
         namespace AviUtlPluginNet.Example;
 
-        [Abstractions.Attribute.AviUtl2InputPlugin]
-        partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
+        [AviUtl2Plugin]
+        class MyPlugin : IInputVideo<PluginImageHandle>, IUseLogger, IPluginLifecycle, IRequireVersion
         {
-            public static string name => ".NET Example Input Plugin";
-            public static string fileFilter => "All Files (*.*)\0*.*\0";
-            public static string information => ".NET NativeAOT AviUtl Input Plugin Example";
+            public static string Name => ".NET Example Input Plugin";
+            public static string FileFilter => "All Files (*.*)\0*.*\0";
+            public static string Information => ".NET NativeAOT AviUtl Input Plugin Example";
+            public static uint RequiredVersion => 2001;
 
-            // パラメータなしコンストラクタ - 初期化処理をここに書ける
-            public MyPlugin()
+            private ILogger2? _logger;
+
+            // ホストからログ出力機能が注入される (IUseLogger)
+            public void AttachLogger(ILogger2 logger)
             {
-                // ここに初期化処理を追加できます
-                // 例：ログの初期化、設定の読み込み、etc.
-                // WARNING: dotnet test経由では、一つのテストクラスでUnloadを行なっても一度しか呼ばれません
-                Console.WriteLine("MyPlugin initialized!");
+                _logger = logger;
             }
 
-            public bool FuncClose(PluginImageHandle ih)
+            // プラグインDLLの初期化・終了処理 (IPluginLifecycle)
+            public bool OnInitialize(uint hostVersion)
             {
-                ih.Dispose();
+                _logger?.Info($"MyPlugin initialized! (host version: {hostVersion})");
                 return true;
             }
 
-            public IInputHandle? FuncOpen(string file)
+            public void OnUninitialize()
+            {
+                _logger?.Info("MyPlugin uninitialized!");
+            }
+
+            public PluginImageHandle? Open(string file)
             {
                 var bitmap = SKBitmap.Decode(file);
                 if (bitmap == null)
@@ -63,12 +72,37 @@ public class SimpleNativeLibraryE2ETestsFixture : IDisposable
                 return new PluginImageHandle(bitmap);
             }
 
-            public Span<byte> FuncReadVideo(PluginImageHandle ih, int frame)
+            public bool Close(PluginImageHandle handle)
+            {
+                handle.Dispose();
+                return true;
+            }
+
+            public bool TryGetInfo(PluginImageHandle handle, out INPUT_INFO info)
+            {
+                // 1秒=30フレーム固定、rate=30, scale=1
+                info = new INPUT_INFO()
+                {
+                    flag = InputFlag.Video,
+                    rate = 30,
+                    scale = 1,
+                    n = 30,
+                    format = handle.BitmapInfoPtr, // PluginImageHandleが管理するポインタを使用
+                    format_size = Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
+                    audio_n = 0,
+                    audio_format = IntPtr.Zero,
+                    audio_format_size = 0
+                };
+
+                return true;
+            }
+
+            public Span<byte> ReadVideo(PluginImageHandle handle, int frame)
             {
                 // 1秒=30フレームで1周回転
                 float angle = (float)(frame % 30) / 30.0f * 360.0f;
-                int w = ih.Width;
-                int h = ih.Height;
+                int w = handle.Width;
+                int h = handle.Height;
                 using var surface = SKSurface.Create(new SKImageInfo(w, h));
                 var canvas = surface.Canvas;
                 canvas.Clear(SKColors.Transparent);
@@ -76,7 +110,7 @@ public class SimpleNativeLibraryE2ETestsFixture : IDisposable
                 canvas.Translate(w / 2f, h / 2f);
                 canvas.RotateDegrees(angle);
                 canvas.Translate(-w / 2f, -h / 2f);
-                canvas.DrawBitmap(ih.Bitmap, 0, 0);
+                canvas.DrawBitmap(handle.Bitmap, 0, 0);
                 canvas.Flush();
 
                 using var img = surface.Snapshot();
@@ -99,25 +133,6 @@ public class SimpleNativeLibraryE2ETestsFixture : IDisposable
                 }
 
                 return pixels;
-            }
-
-            public bool FuncInfoGet(PluginImageHandle ih, out INPUT_INFO? info)
-            {
-                // 1秒=30フレーム固定、rate=30, scale=1
-                info = new INPUT_INFO()
-                {
-                    flag = InputFlag.Video,
-                    rate = 30,
-                    scale = 1,
-                    n = 30,
-                    format = ih.BitmapInfoPtr, // PluginImageHandleが管理するポインタを使用
-                    format_size = Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
-                    audio_n = 0,
-                    audio_format = IntPtr.Zero,
-                    audio_format_size = 0
-                };
-
-                return true;
             }
         }
 
@@ -186,56 +201,52 @@ public class SimpleNativeLibraryE2ETestsFixture : IDisposable
 /// </summary>
 public class SimpleNativeLibraryE2ETests : IClassFixture<SimpleNativeLibraryE2ETestsFixture>, IDisposable
 {
-    private readonly PluginFixture _fixture;
-    private INativeInputPluginTableProvider _pluginTableProvider;
+    private readonly NativePluginLibrary _library;
     private unsafe INPUT_PLUGIN_TABLE* _pluginTable = null;
 
     public SimpleNativeLibraryE2ETests(SimpleNativeLibraryE2ETestsFixture testFixture)
     {
-        _fixture = testFixture.PluginFixture;
-        _pluginTableProvider = new NativePluginTableProviderDynamic(_fixture.DllPath);
+        _library = new NativePluginLibrary(testFixture.PluginFixture.DllPath);
 
-        var tablePtr = _pluginTableProvider.GetInputPluginTable();
-        if (tablePtr != IntPtr.Zero)
+        unsafe
         {
-            unsafe
-            {
-                _pluginTable = (INPUT_PLUGIN_TABLE*)tablePtr;
-            }
+            var getTable = (delegate* unmanaged[Stdcall]<IntPtr>)_library.GetExport("GetInputPluginTable");
+            _pluginTable = (INPUT_PLUGIN_TABLE*)getTable();
         }
     }
 
     /// <summary>
     /// GetInputPluginTable エントリーポイントのテスト
+    /// 能力インターフェースの実装有無がflag・関数ポインタに反映されることを検証する
     /// </summary>
     [Fact]
     public void GetInputPluginTable_ShouldReturnValidPointer()
     {
-        try
+        unsafe
         {
-            var tablePtr = _pluginTableProvider.GetInputPluginTable();
-            Assert.NotEqual(IntPtr.Zero, tablePtr);
+            var table = _pluginTable;
+            Assert.False(table == null);
 
-            unsafe
-            {
-                var table = (INPUT_PLUGIN_TABLE*)tablePtr;
-                Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_open);
-                Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_close);
-                Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_info_get);
-                Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_read_video);
-                Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_read_audio);
-                Assert.Equal(IntPtr.Zero, (IntPtr)table->func_config);
+            // IInputVideo のみ実装 → flag は Video のみ
+            Assert.Equal(InputPluginTableFlag.Video, table->flag);
 
-                if (table->name != IntPtr.Zero)
-                {
-                    var name = Marshal.PtrToStringUni(table->name);
-                    Assert.False(string.IsNullOrEmpty(name));
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Assert.Fail(ex.Message);
+            Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_open);
+            Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_close);
+            Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_info_get);
+            Assert.NotEqual(IntPtr.Zero, (IntPtr)table->func_read_video);
+            // IInputAudio 未実装 → func_read_audio は null
+            Assert.Equal(IntPtr.Zero, (IntPtr)table->func_read_audio);
+            // IInputConfigDialog 未実装 → func_config は null
+            Assert.Equal(IntPtr.Zero, (IntPtr)table->func_config);
+            // IInputMultiTrack / IInputTimeToFrame 未実装 → null
+            Assert.Equal(IntPtr.Zero, (IntPtr)table->func_set_track);
+            Assert.Equal(IntPtr.Zero, (IntPtr)table->func_time_to_frame);
+
+            var name = Marshal.PtrToStringUni(table->name);
+            Assert.Equal(".NET Example Input Plugin", name);
+
+            var information = Marshal.PtrToStringUni(table->information);
+            Assert.Equal(".NET NativeAOT AviUtl Input Plugin Example", information);
         }
     }
 
@@ -289,19 +300,7 @@ public class SimpleNativeLibraryE2ETests : IClassFixture<SimpleNativeLibraryE2ET
                         Marshal.FreeHGlobal(videoBuffer);
                     }
 
-                    // 4. 音声データを読み取り（映像プラグインなので0を期待）
-                    IntPtr audioBuffer = Marshal.AllocHGlobal(1000);
-                    try
-                    {
-                        var audioSize = _pluginTable->func_read_audio(handle, 0, 1000, audioBuffer);
-                        Assert.Equal(0, audioSize); // 映像プラグインなので音声なし
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(audioBuffer);
-                    }
-
-                    // 5. ファイルを閉じる
+                    // 4. ファイルを閉じる
                     var closeResult = _pluginTable->func_close(handle);
                     Assert.True(closeResult);
                 }
@@ -399,6 +398,83 @@ public class SimpleNativeLibraryE2ETests : IClassFixture<SimpleNativeLibraryE2ET
         }
     }
 
+    #region ホストサービス機能(cake機能)のエクスポート検証
+
+    private static readonly ConcurrentQueue<string> CapturedLogs = new();
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void CaptureLog(LOG_HANDLE* handle, IntPtr message)
+    {
+        CapturedLogs.Enqueue(Marshal.PtrToStringUni(message) ?? string.Empty);
+    }
+
+    /// <summary>
+    /// IRequireVersion 実装 → RequiredVersion エクスポートが生成されることを検証
+    /// </summary>
+    [Fact]
+    public void RequiredVersionExport_ShouldReturnDeclaredVersion()
+    {
+        unsafe
+        {
+            var requiredVersion = (delegate* unmanaged[Stdcall]<uint>)_library.GetExport("RequiredVersion");
+            Assert.Equal(2001u, requiredVersion());
+        }
+    }
+
+    /// <summary>
+    /// IUseLogger / IPluginLifecycle 実装 → InitializeLogger / InitializePlugin / UninitializePlugin
+    /// エクスポートが生成され、注入したLOG_HANDLE経由でログが出力されることを検証
+    /// </summary>
+    [Fact]
+    public void LoggerAndLifecycleExports_ShouldInjectLoggerAndInitialize()
+    {
+        unsafe
+        {
+            // ホスト側のLOG_HANDLEを構築してプラグインに注入
+            var logHandle = (LOG_HANDLE*)Marshal.AllocHGlobal(sizeof(LOG_HANDLE));
+            try
+            {
+                logHandle->log = &CaptureLog;
+                logHandle->info = &CaptureLog;
+                logHandle->warn = &CaptureLog;
+                logHandle->error = &CaptureLog;
+                logHandle->verbose = &CaptureLog;
+
+                var initializeLogger = (delegate* unmanaged[Stdcall]<IntPtr, void>)_library.GetExport("InitializeLogger");
+                initializeLogger((IntPtr)logHandle);
+
+                // InitializePlugin → OnInitialize がログを出力する
+                var initializePlugin = (delegate* unmanaged[Stdcall]<uint, bool>)_library.GetExport("InitializePlugin");
+                var result = initializePlugin(2001u);
+                Assert.True(result);
+                Assert.Contains(CapturedLogs, m => m.Contains("MyPlugin initialized!") && m.Contains("2001"));
+
+                // UninitializePlugin → OnUninitialize がログを出力する
+                var uninitializePlugin = (delegate* unmanaged[Stdcall]<void>)_library.GetExport("UninitializePlugin");
+                uninitializePlugin();
+                Assert.Contains(CapturedLogs, m => m.Contains("MyPlugin uninitialized!"));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal((IntPtr)logHandle);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 実装していない機能インターフェースのエクスポートは生成されないことを検証
+    /// </summary>
+    [Fact]
+    public void UnimplementedFeatureExports_ShouldNotExist()
+    {
+        // IUseConfig 未実装 → InitializeConfig エクスポートなし
+        Assert.False(_library.TryGetExport("InitializeConfig", out _));
+        // Inputプラグイン → GetOutputPluginTable エクスポートなし
+        Assert.False(_library.TryGetExport("GetOutputPluginTable", out _));
+    }
+
+    #endregion
+
     private string CreateTestImage()
     {
         var tempFile = Path.GetTempFileName();
@@ -423,10 +499,7 @@ public class SimpleNativeLibraryE2ETests : IClassFixture<SimpleNativeLibraryE2ET
 
     public void Dispose()
     {
-        if (_pluginTableProvider is IDisposable disp)
-        {
-            disp.Dispose();
-        }
+        _library.Dispose();
         unsafe
         {
             _pluginTable = null;

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
@@ -13,6 +13,15 @@
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="3.119.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.0" />
+  </ItemGroup>
+
+  <!--
+    Linux では NativeAOT 共有ライブラリの P/Invoke 解決がプロセス実行ファイル基準となり、
+    プラグイン隣の libSkiaSharp.so を見つけられない。
+    RUNPATH に $ORIGIN を追加することで、プレーン名の dlopen が自身の隣を探索できるようにする。
+  -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <LinkerArg Include="-Wl,-rpath,'$ORIGIN'" />
   </ItemGroup>
 
   <ItemGroup>

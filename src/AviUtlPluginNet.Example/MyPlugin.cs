@@ -7,47 +7,87 @@ using SkiaSharp;
 
 namespace AviUtlPluginNet.Example;
 
-[Abstractions.Attribute.AviUtl2InputPlugin]
-partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
+[AviUtl2Plugin]
+class MyPlugin : IInputVideo<PluginImageHandle>, IUseLogger, IPluginLifecycle
 {
-    public static string name => ".NET Example Input Plugin";
-    public static string fileFilter => "All Files (*.*)\0*.*\0";
-    public static string information => ".NET NativeAOT AviUtl Input Plugin Example";
-
-    // パラメータなしコンストラクタ - 初期化処理をここに書ける
-    public MyPlugin()
+    // 同一ディレクトリに配置された依存ネイティブライブラリ (libSkiaSharp.so/.dylib 等) を
+    // P/Invoke が発生する前に探索範囲へ加える。
+    // AttachLogger より先に Open が呼ばれる場合があるため static コンストラクタで登録する。
+    static MyPlugin()
     {
         // ここに初期化処理を追加できます
         // 例：ログの初期化、設定の読み込み、etc.
         Console.WriteLine("MyPlugin initialized!");
-
-        // 同一ディレクトリに依存ライブラリなどが配置される場合は、そのパスも探索範囲に含めるためにUnmanagedDllResolveHelperを使用する
         AssemblyLoadContext.Default.ResolvingUnmanagedDll
             += UnmanagedDllResolveHelper.UnmanagedDllCurrentLibraryLocationResolver.ResolveUnmanagedDll;
     }
 
-    public bool FuncClose(PluginImageHandle ih)
+    public static string Name => ".NET Example Input Plugin";
+    public static string FileFilter => "All Files (*.*)\0*.*\0";
+    public static string Information => ".NET NativeAOT AviUtl Input Plugin Example";
+
+    private ILogger2? _logger;
+
+    // ホストからログ出力機能が注入される (IUseLogger)
+    public void AttachLogger(ILogger2 logger)
     {
-        ih.Dispose();
+        _logger = logger;
+    }
+
+    // プラグインDLLの初期化・終了処理 (IPluginLifecycle)
+    public bool OnInitialize(uint hostVersion)
+    {
+        _logger?.Info($"MyPlugin initialized! (host version: {hostVersion})");
         return true;
     }
 
-    public IInputHandle? FuncOpen(string file)
+    public void OnUninitialize()
+    {
+        _logger?.Info("MyPlugin uninitialized!");
+    }
+
+    public PluginImageHandle? Open(string file)
     {
         var bitmap = SKBitmap.Decode(file);
         if (bitmap == null)
         {
+            _logger?.Warn($"Failed to decode: {file}");
             return null;
         }
         return new PluginImageHandle(bitmap);
     }
 
-    public Span<byte> FuncReadVideo(PluginImageHandle ih, int frame)
+    public bool Close(PluginImageHandle handle)
+    {
+        handle.Dispose();
+        return true;
+    }
+
+    public bool TryGetInfo(PluginImageHandle handle, out INPUT_INFO info)
+    {
+        // 1秒=30フレーム固定、rate=30, scale=1
+        info = new INPUT_INFO()
+        {
+            flag = InputFlag.Video,
+            rate = 30,
+            scale = 1,
+            n = 30,
+            format = handle.BitmapInfoPtr, // PluginImageHandleが管理するポインタを使用
+            format_size = Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
+            audio_n = 0,
+            audio_format = IntPtr.Zero,
+            audio_format_size = 0
+        };
+
+        return true;
+    }
+
+    public Span<byte> ReadVideo(PluginImageHandle handle, int frame)
     {
         // 1秒=30フレームで1周回転
         float angle = (float)(frame % 30) / 30.0f * 360.0f;
-        int w = ih.Width;
-        int h = ih.Height;
+        int w = handle.Width;
+        int h = handle.Height;
         using var surface = SKSurface.Create(new SKImageInfo(w, h));
         var canvas = surface.Canvas;
         canvas.Clear(SKColors.Transparent);
@@ -55,7 +95,7 @@ partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
         canvas.Translate(w / 2f, h / 2f);
         canvas.RotateDegrees(angle);
         canvas.Translate(-w / 2f, -h / 2f);
-        canvas.DrawBitmap(ih.Bitmap, 0, 0);
+        canvas.DrawBitmap(handle.Bitmap, 0, 0);
         canvas.Flush();
 
         using var img = surface.Snapshot();
@@ -78,24 +118,5 @@ partial class MyPlugin : IInputVideoPlugin<PluginImageHandle>, IWithoutConfig
         }
 
         return pixels;
-    }
-
-    public bool FuncInfoGet(PluginImageHandle ih, out INPUT_INFO? info)
-    {
-        // 1秒=30フレーム固定、rate=30, scale=1
-        info = new INPUT_INFO()
-        {
-            flag = InputFlag.Video,
-            rate = 30,
-            scale = 1,
-            n = 30,
-            format = ih.BitmapInfoPtr, // PluginImageHandleが管理するポインタを使用
-            format_size = Marshal.SizeOf<Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER>(),
-            audio_n = 0,
-            audio_format = IntPtr.Zero,
-            audio_format_size = 0
-        };
-
-        return true;
     }
 }
