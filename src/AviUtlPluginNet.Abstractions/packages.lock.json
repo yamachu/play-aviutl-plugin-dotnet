@@ -11,6 +11,7 @@
       "aviutlpluginnet.win32": {
         "type": "Project"
       }
-    }
+    },
+    "net10.0/linux-x64": {}
   }
 }
