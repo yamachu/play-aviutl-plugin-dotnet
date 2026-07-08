@@ -70,6 +70,8 @@ public class PluginFixture : IDisposable
     {
         File.Copy("templates/TestPlugin.csproj.template", Path.Combine(TmpDirPath, "TestPlugin.csproj"), true);
         File.WriteAllText(Path.Combine(TmpDirPath, "TestPlugin.cs"), pluginImpl);
+        // リポジトリと同じ SDK バージョンでビルドされるよう global.json をコピーする
+        File.Copy(Path.GetFullPath("../../../../../global.json"), Path.Combine(TmpDirPath, "global.json"), true);
 
         var process = new System.Diagnostics.Process
         {
@@ -84,6 +86,20 @@ public class PluginFixture : IDisposable
                 CreateNoWindow = true
             }
         };
+        // testhost から継承した MSBuild 関連の環境変数が子プロセスの SDK 解決と混在し、
+        // ILLink のタスクホスト生成が MSB4216 で失敗するため取り除く
+        foreach (var name in new[]
+                 {
+                     "MSBUILD_EXE_PATH",
+                     "MSBuildExtensionsPath",
+                     "MSBuildSDKsPath",
+                     "DOTNET_HOST_PATH",
+                     "MSBUILDNOINPROCNODE",
+                     "MSBuildLoadMicrosoftTargetsReadOnly",
+                 })
+        {
+            process.StartInfo.Environment.Remove(name);
+        }
         process.Start();
         process.WaitForExit();
         if (process.ExitCode != 0)
