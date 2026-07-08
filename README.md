@@ -21,6 +21,7 @@ src/
   AviUtlPluginNet.Core/           # コア機能
   AviUtlPluginNet.Win32/          # Win32 APIラッパー
   AviUtlPluginNet.Example/        # サンプルプラグイン
+  AviUtlPluginNet.FilterCacheExample/ # フィルターキャッシュのサンプル
   AviUtlPluginNet.SourceGenerator/ # Source Generator
 test/
   AviUtlPluginNet.AbstractionsTests/ # E2Eテスト

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Microsoft.DotNet.ILCompiler": {
+        "type": "Direct",
+        "requested": "[10.0.5, )",
+        "resolved": "10.0.5",
+        "contentHash": "yadTZIkStCVsG8nGwvfroSfBApPsgjQbodQyaIfp53dgayE0qhZpywixiCB6lx57JYQ+KVg1m1AFLrj54pxpZg=="
+      },
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[10.0.5, )",
+        "resolved": "10.0.5",
+        "contentHash": "A+5ZuQ0f449tM+MQrhf6R9ZX7lYpjk/ODEwLYKrnF6111rtARx8fVsm4YznUnQiKnnXfaXNBqgxmil6RW3L3SA=="
+      },
+      "aviutlpluginnet.abstractions": {
+        "type": "Project",
+        "dependencies": {
+          "AviUtlPluginNet.Core": "[1.0.0, )"
+        }
+      },
+      "aviutlpluginnet.core": {
+        "type": "Project",
+        "dependencies": {
+          "AviUtlPluginNet.Win32": "[1.0.0, )"
+        }
+      },
+      "aviutlpluginnet.win32": {
+        "type": "Project"
+      }
+    }
+  }
+}
