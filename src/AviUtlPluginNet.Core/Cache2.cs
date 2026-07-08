@@ -21,8 +21,6 @@ namespace AviUtlPluginNet.Core.Interop.Cache2;
 // また C++ では ~CACHE_REFERENCE() が func_release(cache_instance) を呼ぶため、
 // C# 側では利用終了時に func_release を明示的に呼ぶ必要がある
 // (Abstractions の CacheImage 等が Dispose で行う)。
-//
-// ※この ABI 解釈は Windows 実機(AviUtl2本体)での検証が必要 (TODO)
 // ============================================================================
 
 /// <summary>
