@@ -95,7 +95,7 @@ class MyPlugin : IInputVideo<PluginImageHandle>, IUseLogger, IPluginLifecycle
         canvas.Translate(w / 2f, h / 2f);
         canvas.RotateDegrees(angle);
         canvas.Translate(-w / 2f, -h / 2f);
-        canvas.DrawBitmap(handle.Bitmap, 0, 0);
+        canvas.DrawBitmap(handle.Bitmap, 0, 0, SKSamplingOptions.Default);
         canvas.Flush();
 
         using var img = surface.Snapshot();
