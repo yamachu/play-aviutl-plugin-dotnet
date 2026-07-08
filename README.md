@@ -63,7 +63,7 @@ dotnet publish /p:NativeLib=Shared --use-current-runtime
 ```
 
 2. Pluginで読み込むリソースを管理するクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputHandle` を実装している必要があります。
-3. Pluginのメインクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputPlugin<THandle>` を実装し、さらに `AviUtlPluginNet.Abstractions.IInputVideo<THandle>` または `AviUtlPluginNet.Abstractions.IInputAudio<THandle>` の少なくとも一方を実装する必要があります。
+3. Pluginのメインクラスを実装します。これは `AviUtlPluginNet.Abstractions.IInputPlugin<THandle>` を実装し、さらに `AviUtlPluginNet.Abstractions.IInputVideo<THandle>` または `AviUtlPluginNet.Abstractions.IInputAudio<THandle>` の少なくとも一方を実装する必要があります（必要に応じて両方の実装も可能です）。
 4. Pluginのクラスに `AviUtlPluginNet.Abstractions.AviUtl2PluginAttribute`（`[AviUtl2Plugin]`）属性を付与します。
 
 ## テストの実行方法
